@@ -24,3 +24,39 @@ h1, .font-display { font-family: Georgia, "Iowan Old Style", "Palatino Linotype"
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 input[type="checkbox"] { accent-color: #1F7A5A; width: 1rem; height: 1rem; }
 select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23868C89' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .6rem center; appearance: none; -webkit-appearance: none; }
+
+/* ============================ display modes ============================ */
+html[data-size="large"] { font-size: 17.5px; }
+html[data-size="xl"] { font-size: 19.5px; }
+
+/* Touch mode: bigger targets, no hover dependence, no accidental zoom/selection */
+html[data-touch="1"] { -webkit-tap-highlight-color: transparent; }
+html[data-touch="1"] button, html[data-touch="1"] [role="tab"], html[data-touch="1"] [role="radio"], html[data-touch="1"] select, html[data-touch="1"] a[class*="rounded"] { touch-action: manipulation; }
+html[data-touch="1"] button:not(.no-touch), html[data-touch="1"] select, html[data-touch="1"] input:not([type="checkbox"]):not([type="radio"]) { min-height: 2.9rem; }
+html[data-touch="1"] button:not(.no-touch):not(:has(span, div, p)):not([class*="px-"]) { min-width: 2.9rem; }
+html[data-touch="1"] input[type="checkbox"], html[data-touch="1"] input[type="radio"] { width: 1.4rem; height: 1.4rem; }
+html[data-touch="1"] td { padding-top: .8rem !important; padding-bottom: .8rem !important; }
+html[data-touch="1"] th { padding-top: .75rem !important; padding-bottom: .75rem !important; }
+html[data-touch="1"] nav a { padding-top: .8rem; padding-bottom: .8rem; }
+html[data-touch="1"] [role="radio"] { min-height: 3rem; }
+html[data-touch="1"] .text-xs { font-size: .8rem; }
+html[data-touch="1"] .scroll-thin::-webkit-scrollbar { height: 0; width: 0; }
+html[data-touch="1"] body { overscroll-behavior-y: contain; }
+html[data-touch="1"] button { user-select: none; -webkit-user-select: none; }
+
+/* Outdoor high-contrast: stronger text, borders and focus; flatter, brighter surfaces for sunlight */
+html[data-contrast="1"] body { background: #FFFEFA; background-image: none; color: #101514; font-weight: 500; }
+html[data-contrast="1"] .text-charcoal-300, html[data-contrast="1"] .text-charcoal-400, html[data-contrast="1"] .text-charcoal-500 { color: #2A302E !important; }
+html[data-contrast="1"] .text-charcoal-600, html[data-contrast="1"] .text-charcoal { color: #101514 !important; }
+html[data-contrast="1"] .text-white\/60, html[data-contrast="1"] .text-white\/70, html[data-contrast="1"] .text-white\/55 { color: rgba(255,255,255,.92) !important; }
+html[data-contrast="1"] .text-ivory\/40, html[data-contrast="1"] .text-ivory\/50, html[data-contrast="1"] .text-ivory\/60, html[data-contrast="1"] .text-ivory\/70, html[data-contrast="1"] .text-ivory\/45 { color: rgba(250,246,236,.95) !important; }
+html[data-contrast="1"] .border-line, html[data-contrast="1"] .border-charcoal-100, html[data-contrast="1"] .border-line\/60, html[data-contrast="1"] .border-charcoal-200 { border-color: #7C837F !important; }
+html[data-contrast="1"] .divide-line\/60 > * + *, html[data-contrast="1"] .divide-charcoal-100\/70 > * + * { border-color: #A9AEAA !important; }
+html[data-contrast="1"] .shadow-card { box-shadow: 0 0 0 1.5px #7C837F; }
+html[data-contrast="1"] .bg-white\/95, html[data-contrast="1"] .bg-ivory\/85 { background: #fff !important; }
+html[data-contrast="1"] :focus-visible { outline: 3px solid #0F3D2E; outline-offset: 2px; }
+html[data-contrast="1"] ::placeholder { color: #4A504E !important; opacity: 1; }
+html[data-contrast="1"] .bg-gold-50, html[data-contrast="1"] .bg-\[\#FFF3DC\], html[data-contrast="1"] .bg-\[\#FBEAE7\], html[data-contrast="1"] .bg-emerald-50, html[data-contrast="1"] .bg-\[\#E8F1F8\] { outline: 1.5px solid currentColor; outline-offset: -1.5px; }
+html[data-contrast="1"] .text-gold-700, html[data-contrast="1"] .text-gold-600 { color: #6B5120 !important; }
+html[data-contrast="1"] .text-emerald-700 { color: #0E4F38 !important; }
+html[data-contrast="1"] .text-gold-300 { color: #F0D99A !important; }

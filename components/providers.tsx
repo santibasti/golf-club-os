@@ -1,5 +1,6 @@
 "use client";
 import { StoreProvider, useStore } from "@/lib/store";
+import { DisplayProvider } from "@/lib/display";
 import { X, CheckCircle2, AlertTriangle, Info } from "lucide-react";
 
 function ToastHost() {
@@ -17,5 +18,5 @@ function ToastHost() {
   );
 }
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <StoreProvider>{children}<ToastHost /></StoreProvider>;
+  return <DisplayProvider><StoreProvider>{children}<ToastHost /></StoreProvider></DisplayProvider>;
 }

@@ -2,12 +2,14 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, ChevronsLeft, ChevronsRight, Clock, CloudSun, CornerDownLeft, FlaskConical, Menu, RotateCcw, Search, ShieldAlert, X, Smartphone, Plus } from "lucide-react";
+import { TabletSmartphone, Bell, ChevronDown, ChevronsLeft, ChevronsRight, Clock, CloudSun, CornerDownLeft, FlaskConical, Menu, RotateCcw, Search, ShieldAlert, X, Smartphone, Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { NAV, ROLES, roleLabel } from "@/lib/permissions";
 import type { RoleId } from "@/lib/types";
 import { Avatar, Button, Denied, Icon, Modal, Skeleton, cn } from "./ui";
 import { computeAlerts } from "@/lib/services/alerts";
+import { useDisplay } from "@/lib/display";
+import { ChoiceGroup } from "./choices";
 import { useNowTaskCount } from "./tasks";
 import { fmt12, fmtDate, timeOf, dateOf, fmtShort } from "@/lib/time";
 
@@ -17,7 +19,7 @@ function useOutside(ref: React.RefObject<HTMLElement | null>, cb: () => void) {
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
   { label: "Overview", hrefs: ["/", "/golf-operations"] },
-  { label: "Play & course", hrefs: ["/walk-in", "/reservations", "/check-in", "/caddies", "/carts", "/course-map", "/maintenance"] },
+  { label: "Play & course", hrefs: ["/field", "/walk-in", "/reservations", "/check-in", "/caddies", "/carts", "/course-map", "/maintenance"] },
   { label: "Revenue centres", hrefs: ["/membership", "/range", "/pos", "/events"] },
   { label: "Back office", hrefs: ["/finance", "/inventory", "/reports", "/admin"] },
 ];
@@ -160,6 +162,26 @@ function ClockPill() {
   );
 }
 
+function DisplayMenu() {
+  const { display, set, touchActive } = useDisplay(); const [open, setOpen] = useState(false); const ref = useRef<HTMLDivElement>(null); useOutside(ref, () => setOpen(false));
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen((o) => !o)} aria-label="Display settings: touch mode, text size, contrast" title="Display: touch mode, text size, outdoor contrast" className={cn("grid h-10 w-10 place-items-center rounded-xl border bg-white shadow-sm transition-colors hover:bg-ivory-50", touchActive || display.contrast || display.size !== "normal" ? "border-gold-300 text-gold-700" : "border-line text-charcoal-600")}><TabletSmartphone className="h-[18px] w-[18px]" /></button>
+      {open && (
+        <div className="absolute right-0 top-12 z-40 w-[22rem] max-w-[calc(100vw-1.5rem)] animate-sheet rounded-2xl border border-line bg-white p-4 shadow-pop">
+          <p className="mb-3 text-sm font-semibold text-forest">Display for this device</p>
+          <p className="mb-1.5 text-xs font-medium text-charcoal-600">Touch mode <span className="font-normal text-charcoal-400">— bigger buttons & rows for tablets{display.touch === "auto" ? ` (auto: ${touchActive ? "on" : "off"})` : ""}</span></p>
+          <ChoiceGroup variant="segment" label="Touch mode" value={display.touch} onChange={(v) => set({ touch: v })} options={[{ value: "auto", label: "Auto", icon: "Wand2" }, { value: "on", label: "On", icon: "Hand" }, { value: "off", label: "Off", icon: "MousePointer2" }]} />
+          <p className="mb-1.5 mt-4 text-xs font-medium text-charcoal-600">Text size</p>
+          <ChoiceGroup variant="segment" label="Text size" value={display.size} onChange={(v) => set({ size: v })} options={[{ value: "normal", label: "Normal", icon: "Type" }, { value: "large", label: "Large", icon: "ALargeSmall" }, { value: "xl", label: "Extra large", icon: "Baseline" }]} />
+          <p className="mb-1.5 mt-4 text-xs font-medium text-charcoal-600">Outdoor high-contrast <span className="font-normal text-charcoal-400">— for bright sunlight</span></p>
+          <ChoiceGroup variant="segment" label="High contrast" value={display.contrast ? "on" : "off"} onChange={(v) => set({ contrast: v === "on" })} options={[{ value: "off", label: "Off", icon: "Sun" }, { value: "on", label: "On", icon: "SunMedium" }]} />
+          <div className="mt-4 flex items-center justify-between border-t border-line pt-3 text-xs text-charcoal-500"><span>Saved on this device only.</span><Link href="/field" onClick={() => setOpen(false)} className="font-semibold text-emerald underline">Open Field Console →</Link></div>
+        </div>)}
+    </div>
+  );
+}
+
 function ResetButton() {
   const { resetDemo, persistError } = useStore(); const [confirm, setConfirm] = useState(false);
   return (<>
@@ -181,7 +203,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const allowed = session.role !== "member" && (!nav || can(nav.perm));
   return (
     <div className="flex min-h-screen">
-      <Sidebar open={menu} onClose={() => setMenu(false)} collapsed={collapsed} onToggle={toggle} />
+      <Sidebar open={menu} onClose={() => setMenu(false)} collapsed={collapsed || path.startsWith("/field")} onToggle={toggle} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="no-print sticky top-0 z-20 border-b border-line/80 bg-ivory/85 backdrop-blur-xl">
           <div className="flex items-center gap-2.5 px-3 py-2.5 sm:px-6">
@@ -190,7 +212,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button onClick={() => setCmd(true)} className="group ml-0 flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 text-left shadow-sm transition-colors hover:border-charcoal-300 lg:ml-6 lg:max-w-md" aria-label="Search or jump to…">
               <Search className="h-4 w-4 shrink-0 text-charcoal-400" /><span className="truncate text-sm text-charcoal-400">Search or jump to…</span><kbd className="ml-auto hidden shrink-0 rounded-md border border-line bg-ivory-100 px-1.5 py-0.5 text-[10px] font-medium text-charcoal-500 sm:block">⌘K</kbd>
             </button>
-            <div className="ml-auto flex shrink-0 items-center gap-2"><ClockPill /><Notifications /><ResetButton /><RoleSwitcher /></div>
+            <div className="ml-auto flex shrink-0 items-center gap-2"><ClockPill /><Notifications /><DisplayMenu /><ResetButton /><RoleSwitcher /></div>
           </div>
           <div className="flex items-center justify-between gap-3 border-t border-gold-300/30 bg-gradient-to-r from-gold-50 via-gold-50/60 to-transparent px-4 py-1 text-[11px] text-gold-700 sm:px-6"><span className="flex items-center gap-1.5 truncate"><FlaskConical className="h-3.5 w-3.5 shrink-0" /><b className="tracking-wider">DEMO DATA</b><span className="truncate text-gold-700/80">fictional club & golfers · {roleLabel(session.role)} view</span></span>{persistError && <span className="shrink-0 rounded bg-[#B4473A] px-2 py-0.5 text-white">{persistError}</span>}</div>
         </header>
