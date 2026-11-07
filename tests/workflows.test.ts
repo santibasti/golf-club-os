@@ -321,3 +321,14 @@ describe("Cart tracking & course map (simulated GPS)", () => {
   });
 });
 import * as Trk from "@/lib/services/tracking";
+
+describe("Cart map — crew and animation", () => {
+  it("lists the golfers and caddies riding each cart and moves carts continuously with fractional minutes", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const t0 = Trk.allTracks(db).find((t) => t.zone === "course" && (t.riders?.length ?? 0) > 0)!;
+    expect(t0.riders!.length).toBeGreaterThan(0); expect(t0.riders!.length).toBeLessThanOrEqual(db.settings.rates.playersPerCart); expect(t0.ref).toBeTruthy(); expect((t0.caddies ?? []).every((c) => !!c.name)).toBe(true);
+    const flight = db.bookings.find((b) => b.ref === t0.ref)!; const allRiders = Trk.allTracks(db).filter((t) => t.ref === t0.ref).flatMap((t) => t.riders!.map((r) => r.name)); expect(new Set(allRiders).size).toBe(Math.min(flight.players.length, allRiders.length)); // no golfer seated twice
+    const a = Trk.allTracks(db, 0).find((t) => t.cartId === t0.cartId)!, b = Trk.allTracks(db, 0.5).find((t) => t.cartId === t0.cartId)!, c = Trk.allTracks(db, 1).find((t) => t.cartId === t0.cartId)!;
+    expect(b.holeProgress!).toBeGreaterThan(a.holeProgress!); expect(c.holeProgress!).toBeGreaterThan(b.holeProgress!); expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(0); // sub-minute movement = smooth animation
+    const done = Trk.allTracks(db, 600).find((t) => t.cartId === t0.cartId)!; expect(done.zone).toBe("clubhouse"); // finished carts roll back to the clubhouse
+  });
+});

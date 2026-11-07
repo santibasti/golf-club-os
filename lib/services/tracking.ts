@@ -8,7 +8,7 @@ import type { Cart, DB } from "../types";
 import { paceOf, roundOf } from "./flight";
 import { holePlayability } from "./maintenance";
 import { cartsFor } from "./cart";
-import { minsBetween } from "../time";
+import { addMinTs, minsBetween } from "../time";
 
 export const MAP_W = 1000, MAP_H = 720;
 export type Pt = { x: number; y: number };
@@ -41,30 +41,42 @@ export interface CartTrack {
   speedKmh: number; heading: number; battery: number | null; accuracyM: number; lastPingSec: number; simulated: true;
   bookingId?: string; paceStatus?: string; behindMin?: number; flightLabel?: string; startedAt?: string; elapsedMin?: number; overdue?: boolean;
   hazard?: { kind: "restricted" | "closed"; reason?: string };
+  holeProgress?: number; // fractional holes completed (animation)
+  riders?: { name: string; type: "member" | "guest" | "public"; memberId?: string }[]; caddies?: { id: string; name: string; category: string }[]; ref?: string; holes?: 9 | 18;
 }
 const barnSlot = (no: number): Pt => { const i = no - 1, col = i % 10, row = Math.floor(i / 10); return { x: BARN.x - 60 + col * 13, y: BARN.y - 8 + row * 13 }; };
 
-export function cartTrack(db: DB, cart: Cart): CartTrack {
+/** Who is with this cart: players are seated by cart (playersPerCart each); caddies are matched to carts in order. */
+export function crewOf(db: DB, cart: Cart, bookingId?: string) {
+  const b = bookingId ? db.bookings.find((x) => x.id === bookingId) : undefined; if (!b) return {};
+  const carts = cartsFor(db, b.id).sort((a, c) => a.no - c.no); const idx = Math.max(0, carts.findIndex((c) => c.id === cart.id)); const per = db.settings.rates.playersPerCart;
+  const riders = b.players.slice(idx * per, idx * per + per).map((p) => ({ name: p.name, type: p.type, memberId: p.memberId }));
+  const cad = db.caddieAssignments.filter((a) => a.bookingId === b.id && ["reserved", "assigned", "on_course"].includes(a.status)).map((a) => db.caddies.find((c) => c.id === a.caddieId)!).filter(Boolean);
+  const mine = cad.filter((_, i) => i % Math.max(1, carts.length) === idx).map((c) => ({ id: c.id, name: c.name, category: c.category }));
+  return { riders, caddies: mine, ref: b.ref, holes: b.holes };
+}
+export function cartTrack(db: DB, cart: Cart, extraMin = 0): CartTrack {
   const base = { cartId: cart.id, no: cart.no, speedKmh: 0, heading: 0, battery: cart.fuel === "electric" ? cart.battery : null, accuracyM: 3 + (cart.no % 4), lastPingSec: 2 + ((cart.no * 7) % 9), simulated: true as const, hole: null as number | null, progress: null as number | null };
   if (cart.status === "maintenance") return { ...base, ...{ x: SHED.x - 20 + (cart.no % 3) * 14, y: SHED.y + 4 }, zone: "shed" };
   if (["reserved", "dispatched"].includes(cart.status)) {
     const b = db.bookings.find((x) => x.id === cart.bookingId); const idx = b ? cartsFor(db, b.id).findIndex((c) => c.id === cart.id) : 0;
-    return { ...base, x: HOLES_GEO[0].tee.x + 14 + idx * 12, y: HOLES_GEO[0].tee.y + 16, zone: "tee", bookingId: b?.id, flightLabel: b ? `${b.time} · ${b.contactName}` : undefined };
+    return { ...base, x: HOLES_GEO[0].tee.x + 14 + idx * 12, y: HOLES_GEO[0].tee.y + 16, zone: "tee", bookingId: b?.id, flightLabel: b ? `${b.time} · ${b.contactName}` : undefined, ...crewOf(db, cart, b?.id) };
   }
   if (cart.status === "in_use" && cart.bookingId) {
     const b = db.bookings.find((x) => x.id === cart.bookingId); const r = b ? roundOf(db, b.id) : undefined;
     if (b && r?.startedAt) {
       const perHole = (b.holes === 18 ? db.settings.pace.minutes18 : db.settings.pace.minutes9) / b.holes; const lastCp = [...r.checkpoints].sort((a, c) => c.hole - a.hole)[0];
-      const prog = lastCp ? lastCp.hole + minsBetween(lastCp.at, db.meta.now) / perHole : minsBetween(r.startedAt, db.meta.now) / perHole; const p = Math.max(0, Math.min(b.holes, prog));
+      const prog = (lastCp ? lastCp.hole + minsBetween(lastCp.at, db.meta.now) / perHole : minsBetween(r.startedAt, db.meta.now) / perHole) + extraMin / perHole; const p = Math.max(0, Math.min(b.holes, prog));
       const pos = pathAt(p, b.holes); const idx = cartsFor(db, b.id).findIndex((c) => c.id === cart.id); const off = idx <= 0 ? 0 : 9 * (idx % 2 ? 1 : -1);
       const rad = ((pos.heading + 90) * Math.PI) / 180; const moving = pos.u < 0.5 || pos.u > 0.72; const pace = paceOf(db, b);
       return { ...base, x: pos.pt.x + Math.cos(rad) * off, y: pos.pt.y + Math.sin(rad) * off, zone: p >= b.holes ? "clubhouse" : "course", hole: Math.min(b.holes, pos.hole), progress: p / b.holes, speedKmh: moving ? 9 + (cart.no % 5) : 0, heading: pos.heading,
-        battery: cart.fuel === "electric" ? Math.max(5, cart.battery - Math.round((p / b.holes) * 30)) : null, bookingId: b.id, paceStatus: pace.status, behindMin: pace.behindMin, flightLabel: `${b.time} · ${b.contactName}`, startedAt: r.startedAt, elapsedMin: minsBetween(r.startedAt, db.meta.now), overdue: p >= b.holes * 1.04 };
+        battery: cart.fuel === "electric" ? Math.max(5, cart.battery - Math.round((p / b.holes) * 30)) : null, bookingId: b.id, paceStatus: pace.status, behindMin: pace.behindMin, flightLabel: `${b.time} · ${b.contactName}`, startedAt: r.startedAt, elapsedMin: Math.round(minsBetween(r.startedAt, db.meta.now) + extraMin), overdue: p >= b.holes * 1.04, holeProgress: p, ...crewOf(db, cart, b.id) };
     }
   }
   // available / returned / inspection (or in_use without a started round) → parked at the cart barn
   return { ...base, ...barnSlot(cart.no), zone: "barn" };
 }
-export function allTracks(db: DB): CartTrack[] {
-  return db.carts.map((c) => { const t = cartTrack(db, c); if (t.zone === "course" && t.hole) { const pl = holePlayability(db, t.hole); if (pl.label !== "Playable") t.hazard = { kind: pl.label === "Closed" ? "closed" : "restricted", reason: pl.reason }; } return t; });
+export function allTracks(db: DB, extraMin = 0): CartTrack[] {
+  const dv: DB = extraMin ? { ...db, meta: { ...db.meta, now: addMinTs(db.meta.now, Math.floor(extraMin)) } } : db; // hazards are judged at the (visual) time
+  return db.carts.map((c) => { const t = cartTrack(db, c, extraMin); if (t.zone === "course" && t.hole) { const pl = holePlayability(dv, t.hole); if (pl.label !== "Playable") t.hazard = { kind: pl.label === "Closed" ? "closed" : "restricted", reason: pl.reason }; } return t; });
 }
