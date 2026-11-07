@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Badge, Button, Card, CardHeader, DataTable, Empty, Field, KV, Kpi, Modal, Notice, PageHeader, PromptDialog, Select, StatusBadge, Tabs, cn } from "@/components/ui";
 import * as Ct from "@/lib/services/cart";
+import { CourseMap } from "@/components/course-map";
 import * as Mt from "@/lib/services/maintenance";
 import { fmt12, fmtTs } from "@/lib/time";
 import { peso } from "@/lib/format";
@@ -12,7 +13,7 @@ import type { Cart } from "@/lib/types";
 const TILE: Record<Cart["status"], string> = { available: "border-emerald-200 bg-emerald-50 text-emerald-700", reserved: "border-[#CFE1EE] bg-[#E8F1F8] text-[#2C5F85]", dispatched: "border-gold-300 bg-gold-50 text-gold-700", in_use: "border-forest bg-forest text-white", returned: "border-[#F5DFAE] bg-[#FFF3DC] text-[#8A5A00]", inspection: "border-[#F5DFAE] bg-[#FFF3DC] text-[#8A5A00]", maintenance: "border-[#E7B7AE] bg-[#FBEAE7] text-[#9C3326]" };
 
 export default function CartsPage() {
-  const { db, act, can } = useStore(); const [tab, setTab] = useState<"dispatch" | "inventory" | "util">("dispatch"); const [sel, setSel] = useState<string | null>(null); const [issue, setIssue] = useState<string | null>(null); const [assignFor, setAssignFor] = useState<string | null>(null); const [cartPick, setCartPick] = useState("");
+  const { db, act, can } = useStore(); const [tab, setTab] = useState<"dispatch" | "map" | "inventory" | "util">("dispatch"); const [sel, setSel] = useState<string | null>(null); const [issue, setIssue] = useState<string | null>(null); const [assignFor, setAssignFor] = useState<string | null>(null); const [cartPick, setCartPick] = useState("");
   const today = db.meta.now.slice(0, 10); const cc = cartCounts(db); const mgr = can("cart.manage"); const cart = db.carts.find((c) => c.id === sel);
   const flights = db.bookings.filter((b) => b.date === today && ["confirmed", "arrived", "ready", "started"].includes(b.status)).sort((a, b) => a.time.localeCompare(b.time));
   const avail = db.carts.filter((c) => c.status === "available"); const woFor = (c: Cart) => db.workOrders.filter((w) => w.cartId === c.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -21,8 +22,9 @@ export default function CartsPage() {
     <>
       <PageHeader icon="Car" title="Golf Cart Management" sub="Available → Reserved → Dispatched → In use → Returned → Inspection → Available · or Under maintenance" />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5"><Kpi label="Fleet" value={db.carts.length} icon="Car" /><Kpi label="Available" value={cc.available} icon="CircleCheck" /><Kpi label="Dispatched / in use" value={cc.inUse} icon="Route" /><Kpi label="Returned / inspection" value={cc.other} icon="SearchCheck" /><Kpi label="Under maintenance" value={cc.maintenance} icon="Wrench" tone={cc.maintenance ? "red" : "neutral"} /></div>
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: "dispatch", label: "Dispatch board" }, { id: "inventory", label: "Cart inventory" }, { id: "util", label: "Utilization & fees" }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: "dispatch", label: "Dispatch board" }, { id: "map", label: "Live map" }, { id: "inventory", label: "Cart inventory" }, { id: "util", label: "Utilization & fees" }]} />
 
+      {tab === "map" && <CourseMap compact />}
       {tab === "inventory" && <Card><CardHeader title="Cart inventory" sub="Click a cart for details, history and actions" action={<div className="flex flex-wrap gap-2 text-[11px]">{(Object.keys(TILE) as Cart["status"][]).map((s) => <span key={s} className={cn("rounded-full border px-2 py-0.5", TILE[s])}>{s.replace("_", " ")}</span>)}</div>} />
         <div className="grid grid-cols-3 gap-3 p-4 sm:grid-cols-5 lg:grid-cols-8 xl:grid-cols-10">{db.carts.map((c) => <button key={c.id} onClick={() => setSel(c.id)} className={cn("rounded-xl border p-2.5 text-center transition hover:shadow-md", TILE[c.status])}><div className="font-display text-xl font-semibold">#{c.no}</div><div className="text-[10px] uppercase tracking-wide opacity-80">{c.status.replace("_", " ")}</div><div className="mt-1 text-[10px] opacity-70">{c.seats}-seat · {c.fuel === "electric" ? `${c.battery}%` : "gas"}</div></button>)}</div></Card>}
 

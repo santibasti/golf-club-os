@@ -5,6 +5,7 @@ import { flightDelayed } from "./flight";
 import { lowStock } from "./inventory";
 import { memberBalance, outstanding } from "./finance";
 import { diffDays } from "../time";
+import { allTracks } from "./tracking";
 
 export interface Alert { id: string; level: "critical" | "warning" | "info"; type: string; title: string; detail: string; href: string }
 export function computeAlerts(db: DB): Alert[] {
@@ -22,5 +23,10 @@ export function computeAlerts(db: DB): Alert[] {
   const bc = bookingConflicts(db); if (bc.length) out.push({ id: "conf", level: "critical", type: "Booking conflict", title: `${bc.length} reservation(s) conflict with a course restriction`, detail: "Reschedule affected golfers", href: "/reservations" });
   for (const c of db.closures.filter((x) => x.active && x.date >= t)) out.push({ id: "cl-" + c.id, level: c.type === "partial" ? "info" : "warning", type: "Course restriction", title: `${c.type === "full" ? "Course closed" : c.type === "tee" ? "Tee block" : "Holes restricted"} ${c.date === t ? "today" : c.date} ${c.from}–${c.to}`, detail: c.reason, href: "/reservations" });
   const ls = lowStock(db); if (ls.length) out.push({ id: "stock", level: "warning", type: "Low stock", title: `${ls.length} item(s) at or below reorder level`, detail: ls.slice(0, 3).map((i) => i.name).join(", "), href: "/inventory" });
+  for (const t of allTracks(db)) {
+    if (t.hazard) out.push({ id: "geo-" + t.cartId, level: t.hazard.kind === "closed" ? "critical" : "warning", type: "Cart on restricted hole", title: `Cart #${t.no} is on hole ${t.hole} (${t.hazard.kind})`, detail: `${t.flightLabel ?? ""} — ${t.hazard.reason ?? "course restriction in effect"}`, href: "/course-map" });
+    else if (t.overdue) out.push({ id: "late-" + t.cartId, level: "warning", type: "Cart overdue", title: `Cart #${t.no} still out past expected finish`, detail: t.flightLabel ?? "", href: "/course-map" });
+    else if (t.zone === "course" && t.battery !== null && t.battery < 20) out.push({ id: "bat-" + t.cartId, level: "warning", type: "Low cart battery", title: `Cart #${t.no} battery ${t.battery}% on hole ${t.hole}`, detail: t.flightLabel ?? "", href: "/course-map" });
+  }
   const order = { critical: 0, warning: 1, info: 2 }; return out.sort((a, b) => order[a.level] - order[b.level]);
 }

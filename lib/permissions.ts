@@ -80,6 +80,7 @@ export interface NavItem { href: string; label: string; icon: string; perm: Perm
 export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", icon: "LayoutDashboard", perm: "view.dashboard" },
   { href: "/golf-operations", label: "Golf Operations", icon: "Flag", perm: "view.golfops" },
+  { href: "/course-map", label: "Course Map & Carts", icon: "Map", perm: "view.golfops" },
   { href: "/membership", label: "Membership", icon: "IdCard", perm: "view.membership" },
   { href: "/reservations", label: "Reservations / Tee Sheet", icon: "CalendarDays", perm: "view.reservations" },
   { href: "/check-in", label: "Check-In & Starter", icon: "ClipboardCheck", perm: "view.checkin" },

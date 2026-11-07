@@ -16,7 +16,7 @@ function useOutside(ref: React.RefObject<HTMLElement | null>, cb: () => void) {
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
   { label: "Overview", hrefs: ["/", "/golf-operations"] },
-  { label: "Play & course", hrefs: ["/reservations", "/check-in", "/caddies", "/carts", "/maintenance"] },
+  { label: "Play & course", hrefs: ["/reservations", "/check-in", "/caddies", "/carts", "/course-map", "/maintenance"] },
   { label: "Revenue centres", hrefs: ["/membership", "/range", "/pos", "/events"] },
   { label: "Back office", hrefs: ["/finance", "/inventory", "/reports", "/admin"] },
 ];

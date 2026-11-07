@@ -304,3 +304,20 @@ describe("Range + café linked visit", () => {
     const r3 = Pos.openRangeTab(db, C, { name: "Only Food" }); const c3 = Pos.orderFoodForRangeTab(db, C, r3.id); Pos.addCafeLine(db, C, c3.id, db.inventory.find((i) => i.sku === "BEV-01")!.id, 1); expect(Pos.billOutCombined(db, C, r3.id, { method: "cash" }).sale).toBeNull();
   });
 });
+
+describe("Cart tracking & course map (simulated GPS)", () => {
+  it("parks idle carts at the barn, shows maintenance carts at the shed, and moves in-use carts along the course with the clock", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const tracks = Trk.allTracks(db);
+    expect(tracks.length).toBe(30); for (const t of tracks) { expect(t.x).toBeGreaterThanOrEqual(0); expect(t.x).toBeLessThanOrEqual(Trk.MAP_W); expect(t.y).toBeGreaterThanOrEqual(0); expect(t.y).toBeLessThanOrEqual(Trk.MAP_H); expect(t.simulated).toBe(true); }
+    const used = db.carts.find((c) => c.status === "in_use")!; const a = Trk.cartTrack(db, used); expect(a.zone).toBe("course"); expect(a.hole).toBeGreaterThanOrEqual(1);
+    const m = db.carts.find((c) => c.status === "maintenance")!; expect(Trk.cartTrack(db, m).zone).toBe("shed"); const av = db.carts.find((c) => c.status === "available")!; expect(Trk.cartTrack(db, av).zone).toBe("barn");
+    db.meta.now = `${TODAY}T10:30`; const b = Trk.cartTrack(db, used); expect(b.progress!).toBeGreaterThan(a.progress!); expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeGreaterThan(5);
+  });
+  it("flags a cart on a restricted hole once the restriction window starts, and path geometry stays on the map", () => {
+    const db = fresh(); const SUPC = as("superintendent"); db.meta.now = `${TODAY}T09:00`;
+    const t0 = Trk.allTracks(db).find((t) => t.zone === "course")!; const r = Bk.createClosure(db, SUPC, { date: TODAY, from: "09:00", to: "15:00", type: "partial", tee: "all", holes: [t0.hole!], category: "maintenance", reason: "Test restriction" }); expect(r.closure.active).toBe(true);
+    const hz = Trk.allTracks(db).find((t) => t.cartId === t0.cartId)!; expect(hz.hazard?.kind).toBe("restricted"); expect(computeAlerts(db).some((a) => a.type === "Cart on restricted hole")).toBe(true);
+    for (let p = 0; p <= 18; p += 0.25) { const q = Trk.pathAt(p, 18); expect(q.pt.x).toBeGreaterThan(0); expect(q.pt.x).toBeLessThan(Trk.MAP_W); expect(q.hole).toBeGreaterThanOrEqual(1); expect(q.hole).toBeLessThanOrEqual(18); }
+  });
+});
+import * as Trk from "@/lib/services/tracking";

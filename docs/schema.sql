@@ -82,3 +82,8 @@ create table audit_logs (id bigint generated always as identity primary key, clu
 --   alter table bookings enable row level security;
 --   create policy tenant_isolation on bookings using (club_id = (select club_id from users where id = auth.uid()));
 --   Write policies must additionally check role_permissions for the action.
+
+-- cart GPS (see docs/GPS_INTEGRATION.md)
+create table cart_trackers (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, cart_id uuid references golf_carts, device_id text not null, vendor text, installed_at timestamptz, active boolean default true, unique (club_id, device_id));
+create table cart_positions (club_id uuid not null references clubs, cart_id uuid not null references golf_carts, at timestamptz not null, lat double precision not null, lng double precision not null, speed_kmh real, heading real, accuracy_m real, battery_pct real, hole int, primary key (cart_id, at)) partition by range (at);
+-- latest position per cart for the live map: create view cart_latest_position as select distinct on (cart_id) * from cart_positions order by cart_id, at desc;
