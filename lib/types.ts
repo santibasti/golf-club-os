@@ -128,13 +128,13 @@ export interface RangeSale { id: string; at: string; date: string; customerId?: 
 export interface RangeTab {
   id: string; no: string; openedAt: string; name: string; customerId?: string; memberId?: string; bay?: number; status: "open" | "billed" | "cancelled";
   lines: { id: string; code: string; name: string; qty: number; price: number; at: string; minutes?: number; balls?: number }[];
-  billedAt?: string; chargeId?: string; saleId?: string; method?: PaymentMethod | "member_account"; total?: number; discount?: number;
+  billedAt?: string; chargeId?: string; saleId?: string; cafeTabId?: string; method?: PaymentMethod | "member_account"; total?: number; discount?: number;
 }
 /** Running café tab (table or golfer): lines accumulate and are sent to the kitchen; ONE charge + payment at bill-out. */
 export interface CafeTab {
   id: string; no: string; openedAt: string; label: string; customerId?: string; memberId?: string; status: "open" | "billed" | "cancelled";
   lines: { id: string; itemId: string; name: string; qty: number; price: number; at: string; fulfil: "new" | "preparing" | "served" }[];
-  billedAt?: string; orderId?: string; chargeId?: string; method?: PaymentMethod | "member_account"; total?: number;
+  billedAt?: string; orderId?: string; chargeId?: string; rangeTabId?: string; method?: PaymentMethod | "member_account"; total?: number;
 }
 export type PaymentMethod = "cash" | "card" | "gcash" | "bank_transfer";
 export type Dept = "green" | "cart" | "caddie" | "membership" | "cafe" | "range" | "event" | "other";

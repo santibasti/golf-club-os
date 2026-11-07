@@ -282,3 +282,25 @@ describe("Café — running tabs", () => {
     const t2 = Pos.openCafeTab(db, C, { label: "Empty" }); expect(err(() => Pos.billOutCafeTab(db, C, t2.id, { method: "cash" })).code).toBe("validation"); Pos.cancelCafeTab(db, C, t2.id);
   });
 });
+
+describe("Range + café linked visit", () => {
+  it("links café to a range tab, blocks separate billing, and bills once while posting two department charges", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const C = as("cafe"); const m = db.members.filter((x) => x.status === "active")[50]; const plan = db.plans.find((p) => p.id === m.planId)!;
+    const r = Pos.openRangeTab(db, C, { memberId: m.id }); Pos.addRangeLine(db, C, r.id, "BKT-L", 2);
+    const c = Pos.orderFoodForRangeTab(db, C, r.id); expect(c.rangeTabId).toBe(r.id); expect(r.cafeTabId).toBe(c.id); expect(Pos.orderFoodForRangeTab(db, C, r.id).id).toBe(c.id); // idempotent, no duplicate café tab
+    Pos.addCafeLine(db, C, c.id, db.inventory.find((i) => i.sku === "COF-03")!.id, 2); Pos.addCafeLine(db, C, c.id, db.inventory.find((i) => i.sku === "MEL-03")!.id, 1);
+    expect(err(() => Pos.billOutRangeTab(db, C, r.id, "cash")).code).toBe("linked"); expect(err(() => Pos.billOutCafeTab(db, C, c.id, { method: "cash" })).code).toBe("linked");
+    const v = Pos.visitTotals(db, r, c); const ch0 = db.charges.length, pay0 = db.payments.length; const rev0 = totalRevenue(db, { from: TODAY, to: TODAY }); const bal0 = Fn.memberBalance(db, m.id);
+    const res = Pos.billOutCombined(db, C, r.id, { method: "member_account" }); expect(res.grand).toBeCloseTo(v.grand, 2);
+    expect(db.charges.length).toBe(ch0 + 2); expect(db.payments.length).toBe(pay0); expect(Fn.memberBalance(db, m.id)).toBeCloseTo(bal0 + v.grand, 1); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBeCloseTo(rev0 + v.grand, 1);
+    expect(db.charges.find((x) => x.id === res.sale!.chargeId)!.dept).toBe("range"); expect(db.charges.find((x) => x.id === res.order!.chargeId)!.dept).toBe("cafe");
+    expect(r.status).toBe("billed"); expect(c.status).toBe("billed"); expect(plan.rangeDiscountPct).toBeGreaterThan(0); expect(res.sale!.discount).toBeGreaterThan(0);
+  });
+  it("one cash payment covers both charges; works with only café items; unlink restores separate billing; different members can't be linked", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const C = as("cafe"); const r = Pos.openRangeTab(db, C, { name: "Cash Visit" }); Pos.addRangeLine(db, C, r.id, "BKT-S", 1); const c = Pos.orderFoodForRangeTab(db, C, r.id); Pos.addCafeLine(db, C, c.id, db.inventory.find((i) => i.sku === "BEV-01")!.id, 2);
+    const pay0 = db.payments.length; const res = Pos.billOutCombined(db, C, r.id, { method: "cash" }); expect(res.grand).toBe(150); expect(db.payments.length).toBe(pay0 + 2); expect(db.payments.slice(-2).reduce((a, p) => a + p.amount, 0)).toBe(150); expect(new Set(db.payments.slice(-2).map((p) => p.ref)).size).toBe(1);
+    const r2 = Pos.openRangeTab(db, C, { name: "Unlink Me" }); Pos.addRangeLine(db, C, r2.id, "BKT-S", 1); const c2 = Pos.orderFoodForRangeTab(db, C, r2.id); Pos.addCafeLine(db, C, c2.id, db.inventory.find((i) => i.sku === "BEV-01")!.id, 1); Pos.unlinkTabs(db, C, r2.id); expect(c2.rangeTabId).toBeUndefined(); Pos.billOutRangeTab(db, C, r2.id, "cash"); Pos.billOutCafeTab(db, C, c2.id, { method: "cash" });
+    const ms = db.members.filter((x) => x.status === "active"); const ra = Pos.openRangeTab(db, C, { memberId: ms[3].id }), cb = Pos.openCafeTab(db, C, { memberId: ms[4].id }); expect(err(() => Pos.linkTabs(db, C, ra.id, cb.id)).code).toBe("validation");
+    const r3 = Pos.openRangeTab(db, C, { name: "Only Food" }); const c3 = Pos.orderFoodForRangeTab(db, C, r3.id); Pos.addCafeLine(db, C, c3.id, db.inventory.find((i) => i.sku === "BEV-01")!.id, 1); expect(Pos.billOutCombined(db, C, r3.id, { method: "cash" }).sale).toBeNull();
+  });
+});

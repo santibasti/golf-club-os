@@ -131,13 +131,14 @@ export function removeRangeLine(db: DB, ctx: Ctx, tabId: string, lineId: string)
 export function cancelRangeTab(db: DB, ctx: Ctx, tabId: string) {
   needPerm(db, ctx, "range.sell"); const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found.");
   if (t.status !== "open") fail("Only open tabs can be cancelled."); if (t.lines.length) fail("Remove all items first, or bill the tab out.", "validation");
-  t.status = "cancelled"; t.bay = undefined; audit(db, ctx, "range.tab.cancel", "range_tab", t.id, t.no);
+  t.status = "cancelled"; t.bay = undefined; if (t.cafeTabId) { const c = db.cafeTabs.find((x) => x.id === t.cafeTabId); if (c) c.rangeTabId = undefined; t.cafeTabId = undefined; } audit(db, ctx, "range.tab.cancel", "range_tab", t.id, t.no);
 }
 /** Bill-out: ONE charge for everything on the tab, then one payment (or member-account posting). The bay is released. */
 export function billOutRangeTab(db: DB, ctx: Ctx, tabId: string, method: PayMethod): RangeSale {
   needPerm(db, ctx, "range.sell");
   const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
   if (!t.lines.length) fail("The tab has no items to bill.", "validation");
+  const pc = t.cafeTabId ? db.cafeTabs.find((x) => x.id === t.cafeTabId && x.status === "open" && x.lines.length) : undefined; if (pc) fail("This range tab is linked to a café tab with items. Use the combined bill-out so the golfer pays once.", "linked");
   const tot = tabTotals(db, t); const m = t.memberId ? db.members.find((x) => x.id === t.memberId) : undefined;
   if (method === "member_account") { if (!m) fail("Member account charging needs a member on the tab.", "validation"); memberForCharging(db, m!.id, tot.total); }
   else if (!openShift(db)) fail("No open cashier shift. Open a shift before taking payments.", "no_shift");
@@ -188,12 +189,13 @@ export function removeCafeLine(db: DB, ctx: Ctx, tabId: string, lineId: string, 
 }
 export function cancelCafeTab(db: DB, ctx: Ctx, tabId: string) {
   needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("Only open tabs can be cancelled.");
-  if (t.lines.length) fail("Remove all items first, or bill the tab out.", "validation"); t.status = "cancelled"; audit(db, ctx, "cafe.tab.cancel", "cafe_tab", t.id, t.no);
+  if (t.lines.length) fail("Remove all items first, or bill the tab out.", "validation"); t.status = "cancelled"; if (t.rangeTabId) { const r = db.rangeTabs.find((x) => x.id === t.rangeTabId); if (r) r.cafeTabId = undefined; t.rangeTabId = undefined; } audit(db, ctx, "cafe.tab.cancel", "cafe_tab", t.id, t.no);
 }
 /** Bill-out: one charge + one payment (or member-account posting) for everything on the tab, plus a POS order record for café reports. */
 export function billOutCafeTab(db: DB, ctx: Ctx, tabId: string, i: { method: PayMethod; manualDiscountPct?: number }): PosOrder {
   needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
   if (!t.lines.length) fail("The tab has no items to bill.", "validation");
+  const pr = t.rangeTabId ? db.rangeTabs.find((x) => x.id === t.rangeTabId && x.status === "open" && x.lines.length) : undefined; if (pr) fail("This café tab is linked to a range tab with items. Use the combined bill-out so the golfer pays once.", "linked");
   const manual = i.manualDiscountPct ?? 0; if (manual < 0 || manual > 100) fail("Discount must be between 0 and 100%.", "validation");
   if (manual > db.settings.authority.posDiscountStaffMaxPct) needPerm(db, ctx, "pos.discount");
   const tot = cafeTabTotals(db, t, manual); const m = t.memberId ? db.members.find((x) => x.id === t.memberId) : undefined;
@@ -206,4 +208,63 @@ export function billOutCafeTab(db: DB, ctx: Ctx, tabId: string, i: { method: Pay
   if (i.method !== "member_account" && tot.total > 0) applyPayment(db, ctx, { chargeId: chg.id, amount: tot.total, method: i.method as PaymentMethod });
   db.posOrders.push(order); t.status = "billed"; t.billedAt = db.meta.now; t.orderId = id; t.chargeId = chg.id; t.method = i.method; t.total = tot.total; t.lines.forEach((l) => { l.fulfil = "served"; });
   audit(db, ctx, "cafe.tab.bill", "cafe_tab", t.id, `${t.no} billed ₱${tot.total} via ${i.method}`); return order;
+}
+
+/* ------------- linked visit: range tab + café tab, one combined bill ------------- */
+export function linkTabs(db: DB, ctx: Ctx, rangeTabId: string, cafeTabId: string) {
+  needPerm(db, ctx, "pos.sell");
+  const r = req(db.rangeTabs.find((x) => x.id === rangeTabId), "Range tab not found."); const c = req(db.cafeTabs.find((x) => x.id === cafeTabId), "Café tab not found.");
+  if (r.status !== "open" || c.status !== "open") fail("Only open tabs can be linked.");
+  if ((r.cafeTabId && r.cafeTabId !== c.id) || (c.rangeTabId && c.rangeTabId !== r.id)) fail("One of these tabs is already linked to another tab. Unlink it first.", "conflict");
+  if (r.memberId && c.memberId && r.memberId !== c.memberId) fail("These tabs belong to different members and cannot be combined.", "validation");
+  r.cafeTabId = c.id; c.rangeTabId = r.id; audit(db, ctx, "tabs.link", "range_tab", r.id, `${r.no} ↔ ${c.no} (${r.name})`);
+}
+export function unlinkTabs(db: DB, ctx: Ctx, tabId: string) {
+  needPerm(db, ctx, "pos.sell");
+  const r = db.rangeTabs.find((x) => x.id === tabId) ?? db.rangeTabs.find((x) => x.cafeTabId === tabId); const c = r?.cafeTabId ? db.cafeTabs.find((x) => x.id === r.cafeTabId) : db.cafeTabs.find((x) => x.id === tabId);
+  if (!r?.cafeTabId || !c) fail("This tab is not linked.");
+  if (r!.status !== "open" || c!.status !== "open") fail("Only open tabs can be unlinked.");
+  r!.cafeTabId = undefined; c!.rangeTabId = undefined; audit(db, ctx, "tabs.unlink", "range_tab", r!.id, `${r!.no} ✕ ${c!.no}`);
+}
+/** Order food & drinks for a golfer on a range tab: reuses an unlinked open café tab for the same golfer, otherwise opens one (and links it). */
+export function orderFoodForRangeTab(db: DB, ctx: Ctx, rangeTabId: string): CafeTab {
+  needPerm(db, ctx, "pos.sell");
+  const r = req(db.rangeTabs.find((x) => x.id === rangeTabId), "Range tab not found."); if (r.status !== "open") fail("This range tab is already billed out or cancelled.");
+  if (r.cafeTabId) { const c = db.cafeTabs.find((x) => x.id === r.cafeTabId && x.status === "open"); if (c) return c; }
+  const existing = db.cafeTabs.find((x) => x.status === "open" && !x.rangeTabId && ((r.memberId && x.memberId === r.memberId) || x.label.toLowerCase() === r.name.toLowerCase()));
+  const c = existing ?? openCafeTab(db, ctx, { label: r.name, memberId: r.memberId }); linkTabs(db, ctx, r.id, c.id); return c;
+}
+export function visitTotals(db: DB, r: RangeTab, c?: CafeTab, manualPct = 0) {
+  const rt = tabTotals(db, r); const ct = c ? cafeTabTotals(db, c, manualPct) : null;
+  return { range: rt, cafe: ct, grand: r2(rt.total + (ct?.total ?? 0)), items: r.lines.length + (c?.lines.length ?? 0) };
+}
+/** One bill, one payment for the whole visit. Revenue still posts to two departments (range / café) via two charges. */
+export function billOutCombined(db: DB, ctx: Ctx, rangeTabId: string, i: { method: PayMethod; manualDiscountPct?: number }): { sale: RangeSale | null; order: PosOrder | null; grand: number } {
+  needPerm(db, ctx, "pos.sell"); needPerm(db, ctx, "range.sell");
+  const r = req(db.rangeTabs.find((x) => x.id === rangeTabId), "Range tab not found."); if (r.status !== "open") fail("This tab is already billed out or cancelled.");
+  const c = r.cafeTabId ? db.cafeTabs.find((x) => x.id === r.cafeTabId && x.status === "open") : undefined;
+  const manual = i.manualDiscountPct ?? 0; if (manual < 0 || manual > 100) fail("Discount must be between 0 and 100%.", "validation");
+  if (manual > db.settings.authority.posDiscountStaffMaxPct) needPerm(db, ctx, "pos.discount");
+  const v = visitTotals(db, r, c, manual); if (v.items === 0) fail("There is nothing on this visit to bill.", "validation");
+  const m = r.memberId ? db.members.find((x) => x.id === r.memberId) : undefined;
+  if (i.method === "member_account") { if (!m) fail("Member account charging needs a member on the tab.", "validation"); memberForCharging(db, m!.id, v.grand); }
+  else if (!openShift(db)) fail("No open cashier shift. Open a shift before taking payments.", "no_shift");
+  const group = nextId(db, "visit", "VISIT-", 5); let sale: RangeSale | null = null; let order: PosOrder | null = null;
+  const settle = (tot: number, chargeId: string) => { if (i.method !== "member_account" && tot > 0) applyPayment(db, ctx, { chargeId, amount: tot, method: i.method as PaymentMethod, ref: group }); };
+  if (r.lines.length) {
+    const rt = v.range; const chg = createCharge(db, ctx, { dept: "range", description: `Range tab ${r.no} (${group}): ${r.lines.map((l) => `${l.qty}× ${l.name}`).join(", ")}`, amount: rt.gross, discount: rt.discount, discountReason: rt.pct ? `Member range discount ${rt.pct}%` : undefined, name: r.name, customerId: r.customerId, memberId: r.memberId, refType: "range_sale", billTo: i.method === "member_account" ? "member_account" : "counter", billingKey: undefined });
+    const agg: Record<string, { code: string; name: string; qty: number; price: number }> = {}; for (const l of r.lines) (agg[l.code] ??= { code: l.code, name: l.name, qty: 0, price: l.price }).qty += l.qty;
+    const id = nextId(db, "range", "RS-", 6); chg.refId = id; sale = { id, at: db.meta.now, date: today(db), customerId: r.customerId, memberId: r.memberId, name: r.name, items: Object.values(agg), bay: r.bay, minutes: rt.minutes || undefined, ended: true, amount: rt.total, discount: rt.discount, chargeId: chg.id, method: i.method };
+    settle(rt.total, chg.id); db.rangeSales.push(sale); r.saleId = id; r.chargeId = chg.id; r.total = rt.total; r.discount = rt.discount;
+  }
+  if (c && c.lines.length && v.cafe) {
+    const ct = v.cafe; const id = nextId(db, "pos", "PO-", 6); const no = nextId(db, "posNo", "POS-", 5);
+    const chg = createCharge(db, ctx, { dept: "cafe", description: `Café tab ${c.no} (${c.label}) → ${no} (${group})`, amount: ct.subtotal, discount: ct.discount, discountReason: ct.pct ? (ct.memberPct >= manual ? `Member discount ${ct.pct}%` : `Authorised discount ${ct.pct}%`) : undefined, name: c.label, customerId: c.customerId, memberId: c.memberId, refType: "pos_order", refId: id, billTo: i.method === "member_account" ? "member_account" : "counter" });
+    const agg: Record<string, PosOrder["items"][number]> = {}; for (const l of c.lines) (agg[l.itemId] ??= { itemId: l.itemId, name: l.name, qty: 0, price: l.price }).qty += l.qty;
+    order = { id, no, at: db.meta.now, date: today(db), items: Object.values(agg), subtotal: ct.subtotal, discountPct: ct.pct, discount: ct.discount, total: ct.total, method: i.method, fulfil: "served", memberId: c.memberId, customerName: c.label, chargeId: chg.id, cashier: ctx.actor, note: `Tab ${c.no} · ${group}` };
+    settle(ct.total, chg.id); db.posOrders.push(order); c.orderId = id; c.chargeId = chg.id; c.total = ct.total; c.lines.forEach((l) => { l.fulfil = "served"; });
+  }
+  r.status = "billed"; r.billedAt = db.meta.now; r.method = i.method; r.bay = undefined;
+  if (c) { c.status = "billed"; c.billedAt = db.meta.now; c.method = i.method; }
+  audit(db, ctx, "visit.bill", "range_tab", r.id, `${group} ${r.no}${c ? " + " + c.no : ""} billed ₱${v.grand} via ${i.method}`); return { sale, order, grand: v.grand };
 }

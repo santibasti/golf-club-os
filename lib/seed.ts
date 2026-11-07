@@ -18,7 +18,7 @@ import * as Mt from "./services/maintenance";
 import * as Ev from "./services/events";
 import { nextId } from "./services/core";
 
-export const SEED_VERSION = 6;
+export const SEED_VERSION = 7;
 export const DEMO_NOW_TIME = "09:00";
 
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -404,7 +404,7 @@ export function createSeedDB(todayOverride?: string): DB {
   const tp = tryDo(() => Pos.openRangeTab(db, POSU, { name: db.customers[100].name, bay: freeBay() }));
   if (tp) { setNow(today, "08:35"); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "BKT-L", 1)); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "CLUB", 1)); }
   // running café tabs (unbilled)
-  setNow(today, "08:25"); const ct1 = tryDo(() => Pos.openCafeTab(db, POSU, { memberId: activeMembers[20].id }));
+  setNow(today, "08:25"); const ct1 = tryDo(() => Pos.openCafeTab(db, POSU, { memberId: tabMember.id })); if (ct1 && tm) Pos.linkTabs(db, POSU, tm.id, ct1.id);
   const sku = (k: string) => db.inventory.find((x) => x.sku === k)!.id;
   if (ct1) { tryDo(() => Pos.addCafeLine(db, POSU, ct1.id, sku("COF-03"), 2)); setNow(today, "08:50"); tryDo(() => Pos.addCafeLine(db, POSU, ct1.id, sku("SNK-02"), 1)); ct1.lines[0].fulfil = "served"; }
   setNow(today, "08:40"); const ct2 = tryDo(() => Pos.openCafeTab(db, POSU, { label: "Table 4 — Reyes group" }));
