@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { ChoiceGroup } from "@/components/choices";
 import { Download } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button, Card, CardHeader, DataTable, Field, Input, Kpi, PageHeader, Select, Empty } from "@/components/ui";
@@ -19,7 +20,7 @@ export default function ReportsPage() {
       <PageHeader icon="BarChart3" title="Reports & Analytics" sub="Reservation ≠ round played ≠ charge ≠ payment — each report states which record it counts" />
       <Card className="mb-5 p-4"><div className="grid gap-3 md:grid-cols-4">
         <Field label="Report" className="md:col-span-2"><Select value={rid} onChange={(e) => setRid(e.target.value)}>{REPORTS.map((r, i) => <option key={r.id} value={r.id}>{i + 1}. {r.title}</option>)}</Select></Field>
-        <Field label="Period"><Select value={rk} onChange={(e) => setRk(e.target.value as typeof rk)}><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d">Last 7 days</option><option value="month">Current month</option><option value="custom">Custom range</option></Select></Field>
+        <Field label="Period"><ChoiceGroup variant="segment" label="Period" value={rk} onChange={setRk} options={[{ value: "today", label: "Today", icon: "Sun" }, { value: "yesterday", label: "Yesterday", icon: "History" }, { value: "7d", label: "7 days", icon: "CalendarRange" }, { value: "month", label: "Month", icon: "CalendarDays" }, { value: "custom", label: "Custom", icon: "SlidersHorizontal" }]} /></Field>
         {rk === "custom" ? <div className="grid grid-cols-2 gap-2"><Field label="From"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field><Field label="To"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field></div> : <div className="flex items-end text-sm text-charcoal-500">{fmtShort(range.from)} → {fmtShort(range.to)}</div>}</div>
         <p className="mt-2 text-xs text-charcoal-500">{rep.description}{rk === "custom" && from > to ? " ⚠ 'From' is after 'To' — showing today." : ""}</p></Card>
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">{res.kpis.slice(0, 4).map((k) => <Kpi key={k.label} label={k.label} value={k.value} />)}</div>

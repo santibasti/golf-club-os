@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { CartPicker } from "@/components/choices";
 import { useStore } from "@/lib/store";
 import { Badge, Button, Card, CardHeader, DataTable, Empty, Field, KV, Kpi, Modal, Notice, PageHeader, PromptDialog, Select, StatusBadge, Tabs, cn } from "@/components/ui";
 import * as Ct from "@/lib/services/cart";
@@ -44,7 +45,7 @@ export default function CartsPage() {
         <Card><CardHeader title="Rental fee calculation" /><div className="p-4 text-sm"><KV k="18 holes / cart" v={peso(db.settings.rates.cart18)} /><KV k="9 holes / cart" v={peso(db.settings.rates.cart9)} /><KV k="Golfers per cart" v={db.settings.rates.playersPerCart} /><p className="mt-3 text-xs text-charcoal-500">Plan discounts apply to cart fees (e.g. Individual 10%, Family 15%). Fees post to the booking payer at assignment and are voided if the cart is released before dispatch.</p></div></Card></div>}
 
       <Modal open={!!assignFor} onClose={() => setAssignFor(null)} title="Assign cart" size="sm" footer={<><Button variant="outline" onClick={() => setAssignFor(null)}>Cancel</Button><Button disabled={!cartPick} onClick={() => { if (act((d, c) => Ct.assignCart(d, c, assignFor!, cartPick), "Cart reserved for flight").ok) setAssignFor(null); }}>Reserve cart</Button></>}>
-        <Field label="Available carts (maintenance carts are not listed)"><Select value={cartPick} onChange={(e) => setCartPick(e.target.value)}><option value="">Select…</option>{avail.map((c) => <option key={c.id} value={c.id}>#{c.no} · {c.type} · {c.fuel === "electric" ? `${c.battery}% battery` : "gas"} · {c.condition}</option>)}</Select></Field>{avail.length === 0 && <Notice tone="warn" className="mt-3">No carts are available.</Notice>}</Modal>
+        <Field label="Available carts (maintenance carts are not listed)"><CartPicker value={cartPick} onChange={setCartPick} carts={avail.map((c) => ({ id: c.id, no: c.no, type: c.type, battery: c.fuel === "electric" ? c.battery : null, condition: c.condition }))} /></Field>{avail.length === 0 && <Notice tone="warn" className="mt-3">No carts are available.</Notice>}</Modal>
 
       {cart && <Modal open onClose={() => setSel(null)} size="lg" title={<span className="flex items-center gap-2">Cart #{cart.no} <StatusBadge status={cart.status} /></span>}
         footer={<>{mgr && ["available", "reserved", "returned", "inspection", "dispatched", "in_use"].includes(cart.status) && <Button variant="danger" onClick={() => { setIssue(cart.id); }}>Report issue / mark unavailable</Button>}{cart.status === "available" && <span className="mr-auto text-xs text-charcoal-500">Ready for assignment</span>}</>}>

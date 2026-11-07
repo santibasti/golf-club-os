@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
+import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "./choices";
 import { useStore } from "@/lib/store";
 import { Button, Field, Input, Modal, Notice, Select } from "./ui";
 import { outstanding, recordPayment } from "@/lib/services/finance";
@@ -17,7 +18,7 @@ export function PayChargeDialog({ chargeId, onClose }: { chargeId: string | null
       <p className="text-sm">{c.name} · {c.description}</p>
       <div className="my-3 rounded-lg bg-forest-50 p-3 text-sm"><div className="flex justify-between"><span>Net amount</span><b>{peso(c.amount - c.discount, 2)}</b></div><div className="flex justify-between"><span>Already paid</span><span>{peso(c.paid, 2)}</span></div><div className="flex justify-between border-t border-forest-100 pt-1"><span>Outstanding</span><b className="text-forest">{peso(due, 2)}</b></div></div>
       <div className="grid grid-cols-2 gap-3"><Field label="Amount"><Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
-        <Field label="Method"><Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}><option value="cash">Cash</option><option value="gcash">GCash (simulated)</option><option value="card">Card (simulated)</option><option value="bank_transfer">Bank transfer</option></Select></Field>
+        <Field label="Method" className="col-span-2"><PaymentChoice value={method} onChange={(v) => setMethod(v as PaymentMethod)} /></Field>
         {method === "cash" && <Field label="Cash tendered" hint={tender > amount ? `Change ${peso(tender - amount, 2)}` : undefined}><Input type="number" value={tender || ""} onChange={(e) => setTender(Number(e.target.value))} /></Field>}
         {method !== "cash" && <Field label="Reference no."><Input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Simulated reference" /></Field>}</div>
       <p className="mt-2 text-xs text-charcoal-500">No real payment is processed. Payments are applied to this charge only — never counted twice as revenue.</p>

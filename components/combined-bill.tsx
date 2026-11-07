@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "./choices";
 import { Printer } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button, Field, Input, KV, Modal, Notice, Select } from "./ui";
@@ -28,7 +29,7 @@ export function CombinedBillDialog({ rangeTabId, onClose, onDone }: { rangeTabId
       </div>
       <div className="my-4 rounded-lg bg-forest-50 p-3"><div className="flex justify-between text-lg"><b>Total due (one payment)</b><b className="text-forest">{peso(v.grand, 2)}</b></div></div>
       <div className="grid grid-cols-2 gap-3"><Field label="Authorised café discount %" hint={`Staff limit ${db.settings.authority.posDiscountStaffMaxPct}%`}><Input type="number" min={0} max={100} value={manual} onChange={(e) => setManual(Number(e.target.value))} /></Field>
-        <Field label="Payment"><Select value={method} onChange={(e) => setMethod(e.target.value as Pos.PayMethod)}><option value="cash">Cash</option><option value="gcash">GCash (simulated)</option><option value="card">Card (simulated)</option><option value="bank_transfer">Bank transfer</option>{r.memberId && <option value="member_account">Charge to member account</option>}</Select></Field></div>
+        <Field label="Payment" className="col-span-2"><PaymentChoice value={method} onChange={setMethod} memberAccount={!!r.memberId} /></Field></div>
       {method === "cash" && <Field label="Cash tendered" className="mt-3" hint={tender >= v.grand && v.grand > 0 ? `Change ${peso(tender - v.grand, 2)}` : undefined}><Input type="number" value={tender || ""} onChange={(e) => setTender(Number(e.target.value))} /></Field>}
       <p className="mt-3 text-xs text-charcoal-500">Posts two charges (range, café) so department revenue stays accurate, settled by one payment. Simulated — not an official receipt.</p>
     </Modal>

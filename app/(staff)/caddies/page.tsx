@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "@/components/choices";
 import { useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { Avatar, Badge, Button, Card, CardHeader, DataTable, Empty, Field, Input, KV, Kpi, Modal, Notice, PageHeader, PromptDialog, Select, StatusBadge, Tabs, Textarea, cn } from "@/components/ui";
@@ -59,7 +60,7 @@ export default function CaddiesPage() {
                 <div className="flex flex-wrap items-center gap-2"><b>{fmt12(b.time)}</b><span className="text-sm">{b.contactName}</span><StatusBadge status={b.status} /><Badge>{have}/{need} caddies</Badge>{b.preferredCaddieId && <Badge tone="gold">requested: {nameOf(b.preferredCaddieId)}</Badge>}<Button size="sm" className="ml-auto" disabled={!mgr || queue.length === 0} onClick={() => assign(b.id)}>{p?.caddie ? "Assign selected" : `Assign next${queue[0] ? ` (${queue[0].name.split(" ")[0]})` : ""}`}</Button></div>
                 {b.notes && <p className="mt-1 text-xs text-charcoal-500">Note: {b.notes}</p>}
                 <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_9rem_1fr]"><Select aria-label="Specific caddie" value={p?.caddie ?? ""} onChange={(e) => setPick({ ...pick, [b.id]: { ...{ mode: "preferred" as const, reason: "" }, ...pick[b.id], caddie: e.target.value } })}><option value="">Next in queue (no exception)</option>{queue.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.id})</option>)}</Select>
-                  <Select aria-label="Exception type" disabled={!p?.caddie} value={p?.mode ?? "preferred"} onChange={(e) => setPick({ ...pick, [b.id]: { ...p!, mode: e.target.value as "preferred" | "override" } })}><option value="preferred">Preferred request</option><option value="override" disabled={!ovr}>Rotation override{ovr ? "" : " (no permission)"}</option></Select>
+                  <ChoiceGroup variant="segment" label="Exception type" className={!p?.caddie ? "pointer-events-none opacity-40" : ""} value={p?.mode ?? "preferred"} onChange={(v) => setPick({ ...pick, [b.id]: { ...p!, mode: v } })} options={[{ value: "preferred", label: "Preferred", icon: "Heart", hint: "Requested by golfer" }, { value: "override", label: "Override", icon: "ShieldAlert", disabled: !ovr, hint: ovr ? "Skip the rotation (reason recorded)" : "No permission" }]} />
                   <Input disabled={!p?.caddie} placeholder="Reason (required for exceptions)" value={p?.reason ?? ""} onChange={(e) => setPick({ ...pick, [b.id]: { ...p!, reason: e.target.value } })} /></div>
               </div>); })}</Card>
           <Card><CardHeader title="Active assignments" sub="Reserved → Assigned → On course. A caddie cannot hold two active rounds." />

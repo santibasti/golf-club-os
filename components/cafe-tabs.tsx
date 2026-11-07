@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "./choices";
 import { Plus, Receipt, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Badge, Button, Card, CardHeader, Empty, Field, Input, KV, Modal, Notice, Select, cn } from "./ui";
@@ -65,7 +66,7 @@ export function CafeTabs({ onBilled, onVisit }: { onBilled: (o: PosOrder) => voi
           <ul className="mb-3 divide-y divide-charcoal-100/70 text-sm">{tab.lines.map((l) => <li key={l.id} className="flex justify-between py-1.5"><span>{l.qty}× {l.name}</span><span>{peso(l.qty * l.price, 2)}</span></li>)}</ul>
           <div className="mb-3 rounded-lg bg-forest-50 p-3 text-sm"><KV k="Subtotal" v={peso(tot.subtotal, 2)} />{tot.pct > 0 && <KV k={`Discount ${tot.pct}%`} v={`-${peso(tot.discount, 2)}`} />}<div className="flex justify-between border-t border-forest-100 pt-1 text-base"><b>Total due</b><b className="text-forest">{peso(tot.total, 2)}</b></div></div>
           <div className="grid grid-cols-2 gap-3"><Field label="Authorised discount %" hint={`Staff limit ${db.settings.authority.posDiscountStaffMaxPct}%`}><Input type="number" min={0} max={100} value={manual} onChange={(e) => setManual(Number(e.target.value))} /></Field>
-            <Field label="Payment"><Select value={method} onChange={(e) => setMethod(e.target.value as Pos.PayMethod)}><option value="cash">Cash</option><option value="gcash">GCash (simulated)</option><option value="card">Card (simulated)</option><option value="bank_transfer">Bank transfer</option>{tab.memberId && <option value="member_account">Charge to member account</option>}</Select></Field></div>
+            <Field label="Payment" className="col-span-2"><PaymentChoice value={method} onChange={setMethod} memberAccount={!!tab.memberId} /></Field></div>
           {method === "cash" && <Field label="Cash tendered" className="mt-3" hint={tender >= tot.total && tot.total > 0 ? `Change ${peso(tender - tot.total, 2)}` : undefined}><Input type="number" value={tender || ""} onChange={(e) => setTender(Number(e.target.value))} /></Field>}
           <p className="mt-3 text-xs text-charcoal-500">One charge posts to Finance as café revenue. Simulated payment — not an official receipt or BIR invoice.</p></>}
       </Modal>

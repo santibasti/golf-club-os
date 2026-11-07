@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "@/components/choices";
 import { useSearchParams } from "next/navigation";
 import { Download, Plus, Printer } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -65,7 +66,7 @@ function MemberProfile({ id, onClose }: { id: string; onClose: () => void }) {
       <PromptDialog open={dlg === "cancel"} onClose={() => setDlg(null)} tone="danger" title="Cancel membership" label="Reason" onSubmit={(v) => act((d, x) => Ms.cancelMembership(d, x, m.id, v), "Membership cancelled")} />
       <PromptDialog open={dlg === "decline"} onClose={() => setDlg(null)} tone="danger" title="Decline application" label="Reason" onSubmit={(v) => act((d, x) => Ms.rejectApplication(d, x, m.id, v), "Application declined")} />
       <Modal open={pay} onClose={() => setPay(false)} title="Record member payment" size="sm" footer={<><Button variant="outline" onClick={() => setPay(false)}>Cancel</Button><Button onClick={() => { if (act((d, x) => payMemberBalance(d, x, m.id, amt, method), "Payment applied to oldest charges first").ok) setPay(false); }}>Record {peso(amt, 2)}</Button></>}>
-        <div className="grid grid-cols-2 gap-3"><Field label="Amount"><Input type="number" value={amt} onChange={(e) => setAmt(Number(e.target.value))} /></Field><Field label="Method"><Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}><option value="cash">Cash</option><option value="gcash">GCash (simulated)</option><option value="card">Card (simulated)</option><option value="bank_transfer">Bank transfer</option></Select></Field></div><p className="mt-2 text-xs text-charcoal-500">Applied to existing invoices FIFO — no new revenue is created.</p></Modal>
+        <div className="grid grid-cols-2 gap-3"><Field label="Amount"><Input type="number" value={amt} onChange={(e) => setAmt(Number(e.target.value))} /></Field><Field label="Method" className="col-span-2"><PaymentChoice value={method} onChange={(v) => setMethod(v as PaymentMethod)} /></Field></div><p className="mt-2 text-xs text-charcoal-500">Applied to existing invoices FIFO — no new revenue is created.</p></Modal>
     </Modal>
   );
 }
