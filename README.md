@@ -1,7 +1,7 @@
 # GOLF CLUB OS — *One Platform. Every Department. Complete Control.*
 Interactive operations platform demo for a Philippine public golf course with membership (fictional club **Sierra Verde Golf & Country Club**, fictional data). Next.js (App Router) · React · TypeScript · Tailwind · Recharts · Lucide.
 
-> ⚠ **DEMO ONLY.** Data is fictional and lives in *your browser's localStorage* — not a production database, not multi-user, not secure. The role switcher is not authentication. No payments, SMS, email or tax invoicing are connected; receipts are previews, not BIR-compliant. See `docs/PRODUCTION_READINESS.md`.
+> ⚠ **DEMO ONLY.** Data is fictional and lives in *your browser's IndexedDB** — not a production database, not multi-user, not secure. The role switcher is not authentication. No payments, SMS, email or tax invoicing are connected; receipts are previews, not BIR-compliant. See `docs/PRODUCTION_READINESS.md`.
 
 ## Run it
 ```bash
@@ -32,7 +32,7 @@ Start as **General Manager** (can do everything) or switch roles as noted.
 
 ## Test results & limitations
 `npm test` → 38 tests: seed integrity (volumes, determinism, ledger/payment consistency, no double assignment), reservations (double-booking, capacity, member eligibility/rates, guest limits, windows, overlap, deposits), Scenarios A–F, finance rules (overpay, refund, write-off authority, shifts), maintenance flow, events, permissions, pace/delay alerts. `next build` succeeds; all 16 routes load without console errors in a Chromium smoke test; booking via the UI persists across reload.
-Known limitations: shadcn/ui CLI components were not generated — equivalent hand-written components live in `components/ui.tsx`; photos/attachments, GPS, online payments, real notifications and official handicap are *future features* (labelled in the UI); work-order photos not implemented; the tournament scorer is gross-strokes only; localStorage (~5 MB) holds ≈ 14 days of seeded history; no multi-user sync; tests cover services (not browser E2E).
+Known limitations: shadcn/ui CLI components were not generated — equivalent hand-written components live in `components/ui.tsx`; photos/attachments, GPS, online payments, real notifications and official handicap are *future features* (labelled in the UI); work-order photos not implemented; the tournament scorer is gross-strokes only; the demo database is kept in the browser's IndexedDB (a few MB; older localStorage copies are purged automatically); no multi-user sync; tests cover services (not browser E2E).
 
 ## Deploy to Vercel
 No credentials were used and nothing was deployed. To deploy as a **new** project (never over an existing one):

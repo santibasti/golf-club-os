@@ -97,7 +97,7 @@ function ExecDashboard() {
     <>
       <Hero today={today} fin={d.fin} booked={d.booked} started={d.started} util={d.u} alerts={d.alerts} />
       <h2 className="mb-3 font-sans text-[11px] font-semibold uppercase tracking-[.16em] text-charcoal-500">Operations at a glance</h2>
-      <section aria-label="Key indicators" className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+      <section aria-label="Key indicators" className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 3xl:grid-cols-8">
         <Kpi icon="Users" label="Member vs public" value={`${d.mix.member + d.mix.guest} / ${d.mix.public}`} sub={`${d.mix.member} members · ${d.mix.guest} guests · ${d.mix.public} public`} />
         <Kpi icon="PieChart" label="Top department today" value={topDept ? peso(topDept[1]) : "—"} sub={topDept ? DEPTS.find((x) => x.id === topDept[0])?.label : ""} />
         <Kpi icon="UserCheck" label="Caddies on duty" value={d.cc.present} sub={`${d.cc.available} available`} href="/caddies" />

@@ -193,8 +193,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center justify-between gap-3 border-t border-gold-300/30 bg-gradient-to-r from-gold-50 via-gold-50/60 to-transparent px-4 py-1 text-[11px] text-gold-700 sm:px-6"><span className="flex items-center gap-1.5 truncate"><FlaskConical className="h-3.5 w-3.5 shrink-0" /><b className="tracking-wider">DEMO DATA</b><span className="truncate text-gold-700/80">fictional club & golfers · {roleLabel(session.role)} view</span></span>{persistError && <span className="shrink-0 rounded bg-[#B4473A] px-2 py-0.5 text-white">{persistError}</span>}</div>
         </header>
-        <main className="flex-1 px-3 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mx-auto max-w-[1500px]">
+        <main className="flex-1 px-3 py-6 sm:px-6 lg:px-8 lg:py-8 2xl:px-10">
+          <div className="mx-auto w-full max-w-[2600px]">
             {session.role === "member" ? <MemberRedirect /> : allowed ? <Suspense fallback={<PageSkeleton />}>{children}</Suspense> : <Denied perm={nav?.perm} what={nav?.label} />}
           </div>
         </main>

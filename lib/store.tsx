@@ -1,7 +1,7 @@
 "use client";
 /**
  * Demo data access layer. A single in-browser DB (localStorage) shared by every screen.
- * ⚠ Browser persistence is NOT a production database or a secure multi-user backend.
+ * Stored in IndexedDB (structured clone; no 5 MB localStorage limit). ⚠ Browser persistence is NOT a production database or a secure multi-user backend.
  * To go to production, replace `commit`/`load` below with Supabase calls and run the same services server-side (see docs/PRODUCTION_READINESS.md).
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -11,7 +11,6 @@ import { Ctx, DomainError, audit } from "./services/core";
 import { ROLES, can as canRole } from "./permissions";
 import { addMinTs } from "./time";
 
-const DB_KEY = "gcos.db.v" + SEED_VERSION;
 const SESSION_KEY = "gcos.session.v1";
 export interface Session { role: RoleId; portalCustomerId?: string }
 export type ActResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -27,9 +26,16 @@ interface StoreCtx {
 const Ctx_ = createContext<StoreCtx | null>(null);
 export const useStore = () => { const c = useContext(Ctx_); if (!c) throw new Error("StoreProvider missing"); return c; };
 
-function loadDB(): DB {
-  try { const raw = localStorage.getItem(DB_KEY); if (raw) { const d = JSON.parse(raw) as DB; if (d?.meta?.version === SEED_VERSION) return d; } } catch { /* fall through to reseed */ }
-  return createSeedDB();
+/* IndexedDB: the demo database is several MB, which overflows localStorage's ~5 MB quota. */
+const IDB_NAME = "gcos", IDB_STORE = "kv", IDB_KEY = "db";
+function idbOpen(): Promise<IDBDatabase> { return new Promise((res, rej) => { const r = indexedDB.open(IDB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbGet<T>(): Promise<T | undefined> { const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(IDB_KEY); q.onsuccess = () => { db.close(); res(q.result as T | undefined); }; q.onerror = () => { db.close(); rej(q.error); }; }); }
+async function idbSet(v: unknown): Promise<void> { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction(IDB_STORE, "readwrite"); t.objectStore(IDB_STORE).put(v, IDB_KEY); t.oncomplete = () => { db.close(); res(); }; t.onerror = () => { db.close(); rej(t.error); }; t.onabort = () => { db.close(); rej(t.error); }; }); }
+/** Old builds kept a full copy per data version in localStorage — remove them to free the quota. */
+function purgeLegacy() { try { for (const k of Object.keys(localStorage)) if (k.startsWith("gcos.db.")) localStorage.removeItem(k); } catch { /* ignore */ } }
+async function loadDB(): Promise<DB> {
+  try { const d = await idbGet<DB>(); if (d?.meta?.version === SEED_VERSION) { purgeLegacy(); return d; } } catch { /* IndexedDB unavailable → reseed in memory */ }
+  purgeLegacy(); return createSeedDB();
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -40,16 +46,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const dbRef = useRef<DB | null>(null); const timer = useRef<ReturnType<typeof setTimeout> | null>(null); const tid = useRef(1);
 
   useEffect(() => {
-    const d = loadDB(); dbRef.current = d; setDb(d);
+    let alive = true; loadDB().then((d) => { if (!alive) return; dbRef.current = d; setDb(d); idbSet(d).catch(() => undefined); });
     try { const s = localStorage.getItem(SESSION_KEY); if (s) setSession(JSON.parse(s)); } catch { /* ignore */ }
+    return () => { alive = false; };
   }, []);
 
   const persist = useCallback((d: DB) => {
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      try { localStorage.setItem(DB_KEY, JSON.stringify(d)); setPersistError(null); }
-      catch { try { const slim = { ...d, audit: d.audit.slice(-800), messages: d.messages.slice(-100) }; localStorage.setItem(DB_KEY, JSON.stringify(slim)); setPersistError("Browser storage nearly full — older audit entries were trimmed."); } catch { setPersistError("Browser storage is full — changes will be lost on refresh. Use Reset Demo Data."); } }
-    }, 250);
+    timer.current = setTimeout(() => { idbSet(d).then(() => setPersistError(null)).catch(() => setPersistError("Browser storage is unavailable (private window or blocked) — changes will be lost on refresh.")); }, 400);
   }, []);
 
   const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
@@ -77,7 +81,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setPortalCustomer = useCallback((id: string) => { setSession((s) => { const n = { ...s, portalCustomerId: id }; try { localStorage.setItem(SESSION_KEY, JSON.stringify(n)); } catch { /* ignore */ } return n; }); }, []);
   const resetDemo = useCallback(() => {
     const d = createSeedDB(); audit(d, { role: "system", actor: "System" }, "demo.reset", "system", "demo", "Demo data restored to the original seeded state");
-    dbRef.current = d; setDb(d); try { localStorage.setItem(DB_KEY, JSON.stringify(d)); } catch { /* ignore */ } toast("Demo data restored to its original state.", "success");
+    dbRef.current = d; setDb(d); idbSet(d).catch(() => setPersistError("Browser storage is unavailable — changes will be lost on refresh.")); toast("Demo data restored to its original state.", "success");
   }, [toast]);
   const advanceClock = useCallback((minutes: number) => { act((d, c) => { d.meta.now = addMinTs(d.meta.now, minutes); audit(d, c, "demo.clock", "system", "clock", `Demo clock advanced ${minutes} min → ${d.meta.now}`); }); }, [act]);
   const can = useCallback((perm: Permission) => !!db && canRole(db, session.role, perm), [db, session.role]);

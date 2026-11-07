@@ -2,6 +2,7 @@ import type { Config } from "tailwindcss";
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
+    screens: { sm: "640px", md: "768px", lg: "1024px", xl: "1280px", "2xl": "1536px", "3xl": "2100px" },
     extend: {
       colors: {
         forest: { DEFAULT: "#0F3D2E", 50: "#EEF5F1", 100: "#D6E8DE", 200: "#A9CDB9", 700: "#14513C", 800: "#0F3D2E", 900: "#0A2C21", 950: "#06201A" },
