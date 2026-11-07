@@ -124,6 +124,12 @@ export interface PosOrder {
 }
 export interface RangeSale { id: string; at: string; date: string; customerId?: string; memberId?: string; name: string; items: { code: string; name: string; qty: number; price: number }[]; bay?: number; minutes?: number; endsAt?: string; ended?: boolean; amount: number; discount: number; chargeId: string; method: PaymentMethod | "member_account" }
 
+/** Running range tab: items accumulate while the player practises; ONE charge + payment is created at bill-out. */
+export interface RangeTab {
+  id: string; no: string; openedAt: string; name: string; customerId?: string; memberId?: string; bay?: number; status: "open" | "billed" | "cancelled";
+  lines: { id: string; code: string; name: string; qty: number; price: number; at: string; minutes?: number; balls?: number }[];
+  billedAt?: string; chargeId?: string; saleId?: string; method?: PaymentMethod | "member_account"; total?: number; discount?: number;
+}
 export type PaymentMethod = "cash" | "card" | "gcash" | "bank_transfer";
 export type Dept = "green" | "cart" | "caddie" | "membership" | "cafe" | "range" | "event" | "other";
 export type ChargeStatus = "unpaid" | "partial" | "paid" | "refunded" | "written_off" | "voided";
@@ -184,7 +190,7 @@ export interface DB {
   carts: Cart[]; cartDispatches: CartDispatch[];
   staff: Staff[]; workOrders: WorkOrder[]; recurring: RecurringTask[]; assets: Asset[];
   inventory: InventoryItem[]; movements: InventoryMovement[];
-  posOrders: PosOrder[]; rangeSales: RangeSale[];
+  posOrders: PosOrder[]; rangeSales: RangeSale[]; rangeTabs: RangeTab[];
   charges: Charge[]; payments: Payment[]; refunds: Refund[]; shifts: Shift[];
   events: ClubEvent[]; announcements: Announcement[]; feedback: Feedback[]; audit: AuditLog[];
   maintBudget: Record<string, number>; // monthly budget by maintenance category

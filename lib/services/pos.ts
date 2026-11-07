@@ -1,4 +1,4 @@
-import type { DB, PaymentMethod, PosOrder, RangeSale } from "../types";
+import type { DB, PaymentMethod, PosOrder, RangeSale, RangeTab } from "../types";
 import { Ctx, audit, fail, hasPerm, needPerm, nextId, note, req, requireText, today } from "./core";
 import { applyPayment, createCharge, memberBalance, openShift, outstanding, refundCharge, voidCharge } from "./finance";
 import { adjustStock } from "./inventory";
@@ -59,7 +59,14 @@ export function voidPosOrder(db: DB, ctx: Ctx, id: string, reason: string) {
 export const RANGE_ITEMS = (db: DB) => { const r = db.settings.rates.range; return [
   { code: "BKT-S", name: "Small bucket (30 balls)", price: r.bucketS, balls: 30 }, { code: "BKT-M", name: "Medium bucket (50 balls)", price: r.bucketM, balls: 50 }, { code: "BKT-L", name: "Large bucket (80 balls)", price: r.bucketL, balls: 80 },
   { code: "SES-30", name: "Bay session (30 min)", price: r.per30min, balls: 0 }, { code: "CLUB", name: "Club rental (half set)", price: r.clubRental, balls: 0 } ]; };
-export const bayOccupancy = (db: DB) => { const occ: Record<number, RangeSale> = {}; for (const s of db.rangeSales) if (s.bay && !s.ended && s.endsAt && s.endsAt > db.meta.now) occ[s.bay] = s; return occ; };
+export interface BayOcc { name: string; endsAt?: string; tabId?: string; saleId?: string; since?: string }
+/** A bay is occupied by an OPEN tab until it is billed out, or by a legacy one-shot session until its time ends. */
+export const bayOccupancy = (db: DB) => {
+  const occ: Record<number, BayOcc> = {};
+  for (const s of db.rangeSales) if (s.bay && !s.ended && s.endsAt && s.endsAt > db.meta.now) occ[s.bay] = { name: s.name, endsAt: s.endsAt, saleId: s.id };
+  for (const t of db.rangeTabs) if (t.status === "open" && t.bay) occ[t.bay] = { name: t.name, tabId: t.id, since: t.openedAt };
+  return occ;
+};
 
 export function sellRange(db: DB, ctx: Ctx, i: { items: { code: string; qty: number }[]; name?: string; memberId?: string; bay?: number; minutes30?: number; method: PayMethod }): RangeSale {
   needPerm(db, ctx, "range.sell"); if (!i.items.length) fail("Add at least one range item.", "validation");
@@ -81,3 +88,64 @@ export function sellRange(db: DB, ctx: Ctx, i: { items: { code: string; qty: num
 }
 export function endRangeSession(db: DB, ctx: Ctx, id: string) { needPerm(db, ctx, "range.sell"); const s = req(db.rangeSales.find((x) => x.id === id), "Sale not found."); if (!s.bay || s.ended) fail("No active session to end."); s.ended = true; }
 export { hasPerm, note, outstanding };
+
+/* ------------------------- running range tabs ------------------------ */
+export function tabTotals(db: DB, t: RangeTab) {
+  const gross = r2(t.lines.reduce((a, l) => a + l.qty * l.price, 0));
+  const m = t.memberId ? db.members.find((x) => x.id === t.memberId && x.status === "active") : undefined;
+  const pct = m ? (db.plans.find((p) => p.id === m.planId)?.rangeDiscountPct ?? 0) : 0; const discount = r2((gross * pct) / 100);
+  return { gross, pct, discount, total: r2(gross - discount), balls: t.lines.reduce((a, l) => a + (l.balls ?? 0), 0), minutes: t.lines.reduce((a, l) => a + (l.minutes ?? 0), 0) };
+}
+export function openRangeTab(db: DB, ctx: Ctx, i: { name?: string; memberId?: string; bay?: number }): RangeTab {
+  needPerm(db, ctx, "range.sell");
+  const m = i.memberId ? db.members.find((x) => x.id === i.memberId) : undefined;
+  if (i.memberId && !m) fail("Member not found.", "validation");
+  if (m && m.status !== "active") fail(`Member ${m.id} is ${m.status.replace("_", " ")} — member discounts and account charging are unavailable. Open the tab as a public golfer instead.`, "eligibility");
+  const cust = m ? db.customers.find((c) => c.id === m.customerId) : undefined; const name = cust?.name ?? (i.name ?? "").trim();
+  if (!name) fail("Enter the golfer's name or select a member.", "validation");
+  if (db.rangeTabs.some((t) => t.status === "open" && ((m && t.memberId === m.id) || t.name.toLowerCase() === name.toLowerCase()))) fail(`${name} already has an open range tab. Add items to it instead.`, "duplicate");
+  if (i.bay !== undefined) { if (i.bay < 1 || i.bay > RANGE_BAYS) fail("Choose a valid bay.", "validation"); const o = bayOccupancy(db)[i.bay]; if (o) fail(`Bay ${i.bay} is occupied by ${o.name}.`, "conflict"); }
+  const t: RangeTab = { id: nextId(db, "rangeTab", "RT-", 5), no: nextId(db, "rangeTabNo", "TAB-", 5), openedAt: db.meta.now, name, customerId: cust?.id, memberId: m?.id, bay: i.bay, status: "open", lines: [] };
+  db.rangeTabs.push(t); audit(db, ctx, "range.tab.open", "range_tab", t.id, `${t.no} ${name}${i.bay ? ` bay ${i.bay}` : ""}`); return t;
+}
+export function addRangeLine(db: DB, ctx: Ctx, tabId: string, code: string, qty: number, bay?: number) {
+  needPerm(db, ctx, "range.sell");
+  const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  const it = req(RANGE_ITEMS(db).find((c) => c.code === code), "Unknown range item."); if (!Number.isInteger(qty) || qty < 1) fail("Quantity must be a whole number ≥ 1.", "validation");
+  if (code === "SES-30" && !t.bay) {
+    if (!bay) fail("Assign a bay to this tab before adding a practice session.", "validation");
+    if (bay! < 1 || bay! > RANGE_BAYS) fail("Choose a valid bay.", "validation"); const o = bayOccupancy(db)[bay!]; if (o) fail(`Bay ${bay} is occupied by ${o.name}.`, "conflict"); t.bay = bay;
+  }
+  const balls = it.balls * qty; const ball = db.inventory.find((x) => x.sku === "RNG-BALL");
+  if (ball && balls) adjustStock(db, ctx, ball.id, -balls, "sale", t.no, `Range balls dispensed to ${t.name}`);
+  t.lines.push({ id: nextId(db, "rangeLine", "RL-", 6), code, name: it.name, qty, price: it.price, at: db.meta.now, minutes: code === "SES-30" ? 30 * qty : undefined, balls: balls || undefined });
+  audit(db, ctx, "range.tab.add", "range_tab", t.id, `${qty}× ${it.name}`); return t;
+}
+export function removeRangeLine(db: DB, ctx: Ctx, tabId: string, lineId: string) {
+  needPerm(db, ctx, "range.sell");
+  const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  const l = req(t.lines.find((x) => x.id === lineId), "Line not found."); const ball = db.inventory.find((x) => x.sku === "RNG-BALL");
+  if (ball && l.balls) adjustStock(db, ctx, ball.id, l.balls, "void_return", t.no, "Tab line removed");
+  t.lines = t.lines.filter((x) => x.id !== lineId); audit(db, ctx, "range.tab.void_line", "range_tab", t.id, `Removed ${l.qty}× ${l.name}`);
+}
+export function cancelRangeTab(db: DB, ctx: Ctx, tabId: string) {
+  needPerm(db, ctx, "range.sell"); const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found.");
+  if (t.status !== "open") fail("Only open tabs can be cancelled."); if (t.lines.length) fail("Remove all items first, or bill the tab out.", "validation");
+  t.status = "cancelled"; t.bay = undefined; audit(db, ctx, "range.tab.cancel", "range_tab", t.id, t.no);
+}
+/** Bill-out: ONE charge for everything on the tab, then one payment (or member-account posting). The bay is released. */
+export function billOutRangeTab(db: DB, ctx: Ctx, tabId: string, method: PayMethod): RangeSale {
+  needPerm(db, ctx, "range.sell");
+  const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  if (!t.lines.length) fail("The tab has no items to bill.", "validation");
+  const tot = tabTotals(db, t); const m = t.memberId ? db.members.find((x) => x.id === t.memberId) : undefined;
+  if (method === "member_account") { if (!m) fail("Member account charging needs a member on the tab.", "validation"); memberForCharging(db, m!.id, tot.total); }
+  else if (!openShift(db)) fail("No open cashier shift. Open a shift before taking payments.", "no_shift");
+  const id = nextId(db, "range", "RS-", 6);
+  const chg = createCharge(db, ctx, { dept: "range", description: `Range tab ${t.no}: ${t.lines.map((l) => `${l.qty}× ${l.name}`).join(", ")}`, amount: tot.gross, discount: tot.discount, discountReason: tot.pct ? `Member range discount ${tot.pct}%` : undefined, name: t.name, customerId: t.customerId, memberId: t.memberId, refType: "range_sale", refId: id, billTo: method === "member_account" ? "member_account" : "counter" });
+  const agg: Record<string, { code: string; name: string; qty: number; price: number }> = {}; for (const l of t.lines) { (agg[l.code] ??= { code: l.code, name: l.name, qty: 0, price: l.price }).qty += l.qty; }
+  const sale: RangeSale = { id, at: db.meta.now, date: today(db), customerId: t.customerId, memberId: t.memberId, name: t.name, items: Object.values(agg), bay: t.bay, minutes: tot.minutes || undefined, ended: true, amount: tot.total, discount: tot.discount, chargeId: chg.id, method };
+  if (method !== "member_account" && tot.total > 0) applyPayment(db, ctx, { chargeId: chg.id, amount: tot.total, method: method as PaymentMethod });
+  db.rangeSales.push(sale); t.status = "billed"; t.billedAt = db.meta.now; t.chargeId = chg.id; t.saleId = id; t.method = method; t.total = tot.total; t.discount = tot.discount; t.bay = undefined;
+  audit(db, ctx, "range.tab.bill", "range_tab", t.id, `${t.no} billed ₱${tot.total} via ${method}`); return sale;
+}

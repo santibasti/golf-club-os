@@ -236,3 +236,28 @@ describe("maintenance, events, permissions", () => {
     const db = fresh(); const late = db.bookings.find((b) => b.date === TODAY && b.status === "ready"); expect(late).toBeTruthy(); expect(Fl.paceOf(db, late!).status).toBe("delayed"); expect(computeAlerts(db).some((a) => a.type === "Delayed flight")).toBe(true);
   });
 });
+
+describe("Driving range — running tabs", () => {
+  it("accumulates items without charging, then bills once at bill-out and releases the bay", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const RNG = as("cafe");
+    const bay = Array.from({ length: 20 }, (_, i) => i + 1).find((b) => !Pos.bayOccupancy(db)[b])!;
+    const charges0 = db.charges.length, pay0 = db.payments.length, rev0 = totalRevenue(db, { from: TODAY, to: TODAY });
+    const t = Pos.openRangeTab(db, RNG, { name: "Tab Test Golfer", bay });
+    Pos.addRangeLine(db, RNG, t.id, "BKT-M", 1); Pos.addRangeLine(db, RNG, t.id, "BKT-S", 2); const sess = Pos.addRangeLine(db, RNG, t.id, "SES-30", 1);
+    expect(db.charges.length).toBe(charges0); expect(db.payments.length).toBe(pay0); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev0); // nothing charged yet
+    expect(Pos.bayOccupancy(db)[bay].tabId).toBe(t.id); expect(Pos.tabTotals(db, t).total).toBe(150 + 200 + 350);
+    Pos.removeRangeLine(db, RNG, t.id, sess.lines.at(-1)!.id); expect(Pos.tabTotals(db, t).total).toBe(350);
+    const sale = Pos.billOutRangeTab(db, RNG, t.id, "cash");
+    expect(db.charges.length).toBe(charges0 + 1); expect(db.payments.length).toBe(pay0 + 1); expect(sale.amount).toBe(350); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev0 + 350);
+    expect(t.status).toBe("billed"); expect(Pos.bayOccupancy(db)[bay]).toBeUndefined(); expect(err(() => Pos.billOutRangeTab(db, RNG, t.id, "cash")).message).toMatch(/already billed/);
+  });
+  it("applies member discount and charges the member account at bill-out; blocks duplicates, occupied bays and suspended members", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const RNG = as("cafe"); const m = db.members.filter((x) => x.status === "active")[40]; const plan = db.plans.find((p) => p.id === m.planId)!;
+    const t = Pos.openRangeTab(db, RNG, { memberId: m.id }); expect(err(() => Pos.openRangeTab(db, RNG, { memberId: m.id })).code).toBe("duplicate");
+    Pos.addRangeLine(db, RNG, t.id, "BKT-L", 2); const bal = Fn.memberBalance(db, m.id); const total = 500 * (1 - plan.rangeDiscountPct / 100);
+    Pos.billOutRangeTab(db, RNG, t.id, "member_account"); expect(Fn.memberBalance(db, m.id)).toBeCloseTo(bal + total, 1);
+    const sus = db.members.find((x) => x.status === "suspended")!; expect(err(() => Pos.openRangeTab(db, RNG, { memberId: sus.id })).code).toBe("eligibility");
+    const occ = Object.keys(Pos.bayOccupancy(db)).map(Number)[0]; if (occ) expect(err(() => Pos.openRangeTab(db, RNG, { name: "Other", bay: occ })).code).toBe("conflict");
+    const t2 = Pos.openRangeTab(db, RNG, { name: "No Bay" }); expect(err(() => Pos.addRangeLine(db, RNG, t2.id, "SES-30", 1)).code).toBe("validation"); expect(err(() => Pos.billOutRangeTab(db, RNG, t2.id, "cash")).code).toBe("validation"); Pos.cancelRangeTab(db, RNG, t2.id); expect(t2.status).toBe("cancelled");
+  });
+});

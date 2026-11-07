@@ -18,7 +18,7 @@ import * as Mt from "./services/maintenance";
 import * as Ev from "./services/events";
 import { nextId } from "./services/core";
 
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 5;
 export const DEMO_NOW_TIME = "09:00";
 
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -73,7 +73,7 @@ export function createSeedDB(todayOverride?: string): DB {
     meta: { version: SEED_VERSION, clubId: settings.club.tenantId, seededAt: today, today, now: mkTs(addDays(today, -30), "05:00"), seed: 20260507 }, seq: {}, settings,
     rolePerms: JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMS)), holes: [], closures: [], customers: [], plans: JSON.parse(JSON.stringify(PLANS)), members: [], sponsorships: [], bookings: [], rounds: [], waitlist: [], messages: [],
     caddies: [], caddieAttendance: [], rotationEvents: [], caddieAssignments: [], caddieSettlements: [], carts: [], cartDispatches: [], staff: [], workOrders: [], recurring: [], assets: [], inventory: [], movements: [],
-    posOrders: [], rangeSales: [], charges: [], payments: [], refunds: [], shifts: [], events: [], announcements: [], feedback: [], audit: [], maintBudget: {}, historicalMonthly: [],
+    posOrders: [], rangeSales: [], rangeTabs: [], charges: [], payments: [], refunds: [], shifts: [], events: [], announcements: [], feedback: [], audit: [], maintBudget: {}, historicalMonthly: [],
   };
 
   /* ---------------------------- reference data ---------------------------- */
@@ -396,6 +396,13 @@ export function createSeedDB(todayOverride?: string): DB {
   const fb: [number, string][] = [[5, "Great course conditions, caddie was excellent!"], [4, "Pace of play was good. Café was a bit slow."], [5, "Beautiful greens. Will book again."], [3, "Carts were not ready at 7AM."], [4, "Friendly staff at the starter."], [5, "Loved the Saturday mug event."]];
   fb.forEach(([rating, text], i) => { const c = db.customers[80 + i]; db.feedback.push({ id: `FB-${i + 1}`, at: mkTs(addDays(today, -i - 1), "18:00"), customerId: c.id, name: c.name, rating, text }); });
 
+  // running range tabs (unbilled): golfers still practising at the demo time
+  setNow(today, "08:20");
+  const freeBay = () => { const o = Pos.bayOccupancy(db); return Array.from({ length: Pos.RANGE_BAYS }, (_, i) => i + 1).find((b) => !o[b]); };
+  const tabMember = activeMembers[12]; const tm = tryDo(() => Pos.openRangeTab(db, POSU, { memberId: tabMember.id, bay: freeBay() }));
+  if (tm) { setNow(today, "08:22"); tryDo(() => Pos.addRangeLine(db, POSU, tm.id, "BKT-M", 1)); setNow(today, "08:48"); tryDo(() => Pos.addRangeLine(db, POSU, tm.id, "BKT-S", 2)); }
+  const tp = tryDo(() => Pos.openRangeTab(db, POSU, { name: db.customers[100].name, bay: freeBay() }));
+  if (tp) { setNow(today, "08:35"); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "BKT-L", 1)); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "CLUB", 1)); }
   // pending cashier items: one older unpaid public charge + one pending event
   setNow(today, DEMO_NOW_TIME);
   db.meta.today = today; db.meta.now = mkTs(today, DEMO_NOW_TIME);
