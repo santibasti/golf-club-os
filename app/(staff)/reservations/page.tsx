@@ -57,7 +57,8 @@ export default function ReservationsPage() {
   const dayBookings = db.bookings.filter((b) => b.date === date);
   const live = dayBookings.filter((b) => !["cancelled", "no_show"].includes(b.status)); const u = utilization(db, date);
   const conflicts = Bk.bookingConflicts(db).filter((c) => c.booking.date === date);
-  const shown = slots.filter((s) => statusF === "all" || s.bookings.some((b) => b.status === statusF) || (statusF === "booked" && false));
+  const [showPast, setShowPast] = useState(false); const hiddenPast = slots.filter((s) => s.past && s.bookings.length === 0 && !s.blocked).length;
+  const shown = slots.filter((s) => (statusF === "all" || s.bookings.some((b) => b.status === statusF)) && (showPast || statusF !== "all" || !(s.past && s.bookings.length === 0 && !s.blocked)));
   const canBook = can("booking.create");
   const cancelledToday = dayBookings.filter((b) => ["cancelled", "no_show"].includes(b.status));
   const go = (d: string) => { setDate(d); router.replace(`/reservations?date=${d}`); };
@@ -81,7 +82,8 @@ export default function ReservationsPage() {
           <Button variant="outline" size="icon" aria-label="Next day" onClick={() => go(addDays(date, 1))}><ChevronRight className="h-4 w-4" /></Button>
           <Button variant="soft" size="sm" onClick={() => go(today)}>Today</Button>
           <span className="text-sm font-medium text-forest">{fmtDate(date)}</span><Badge tone={Bk.dayType(db, date) === "weekday" ? "neutral" : "gold"}>{Bk.dayType(db, date)}</Badge>
-          <Select value={statusF} onChange={(e) => setStatusF(e.target.value as typeof statusF)} className="ml-auto w-44" aria-label="Status filter">{STATUS_FILTERS.map((s) => <option key={s} value={s}>{s === "all" ? "All statuses" : s.replace("_", " ")}</option>)}</Select>
+          {hiddenPast > 0 && statusF === "all" && <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setShowPast((v) => !v)}>{showPast ? "Hide" : "Show"} {hiddenPast} passed open slots</Button>}
+          <Select value={statusF} onChange={(e) => setStatusF(e.target.value as typeof statusF)} className={hiddenPast > 0 && statusF === "all" ? "w-44" : "ml-auto w-44"} aria-label="Status filter">{STATUS_FILTERS.map((s) => <option key={s} value={s}>{s === "all" ? "All statuses" : s.replace("_", " ")}</option>)}</Select>
         </div></Card>
         {conflicts.length > 0 && <Notice tone="error" className="mb-4"><AlertTriangle className="h-4 w-4 shrink-0" /><span><b>{conflicts.length} reservation(s)</b> are inside a blocked period ({conflicts[0].closure.reason}). Open each to reschedule, or see the Restrictions tab.</span></Notice>}
         <Card>

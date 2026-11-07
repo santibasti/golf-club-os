@@ -53,8 +53,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
-    const id = tid.current++; setToasts((t) => [...t.slice(-3), { id, kind, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 7000 : 3800);
+    const id = tid.current++; setToasts((t) => [...t.slice(-2), { id, kind, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 6500 : 3200);
   }, []);
 
   const ctx: Ctx = useMemo(() => { const r = ROLES.find((x) => x.id === session.role)!; return { role: session.role, actor: r.user }; }, [session.role]);
@@ -84,6 +84,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const value = useMemo<StoreCtx | null>(() => db ? { db, ready: true, session, ctx, persistError, act, setRole, setPortalCustomer, can, resetDemo, advanceClock, toast, toasts, dismissToast } : null, [db, session, ctx, persistError, act, setRole, setPortalCustomer, can, resetDemo, advanceClock, toast, toasts, dismissToast]);
-  if (!value) return <div className="grid min-h-screen place-items-center bg-ivory text-forest"><div className="text-center"><div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-forest-100 border-t-forest" /><p className="font-display text-lg">Loading Golf Club OS demo…</p><p className="mt-1 text-sm text-charcoal-500">Preparing seeded demonstration data</p></div></div>;
+  if (!value) return <div className="grid min-h-screen place-items-center bg-ivory text-forest"><div className="text-center"><span className="mx-auto mb-5 grid h-14 w-14 animate-pulse place-items-center rounded-2xl bg-gradient-to-br from-forest-700 to-forest-900 text-gold-300 shadow-lift"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21V3l9 4-9 4" /><circle cx="8" cy="21" r="1.2" fill="currentColor" /></svg></span><p className="font-display text-xl tracking-wide">GOLF CLUB OS</p><p className="mt-1 text-sm text-charcoal-500">Preparing demonstration data…</p></div></div>;
   return <Ctx_.Provider value={value}>{children}</Ctx_.Provider>;
 }

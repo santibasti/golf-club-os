@@ -24,13 +24,14 @@ export default function DashboardPage() {
 function QuickActions({ items }: { items: { href: string; label: string; icon: React.ReactNode }[] }) {
   return <div className="mb-6 flex flex-wrap gap-2">{items.map((q) => <Link key={q.href + q.label} href={q.href}><Button variant="outline" size="sm" className="bg-white">{q.icon}{q.label}</Button></Link>)}</div>;
 }
+const QA_ICON = "h-4 w-4 text-gold-300";
 const QA = [
-  { href: "/reservations?new=1", label: "New tee time", icon: <CalendarPlus className="h-4 w-4 text-gold-600" /> },
-  { href: "/check-in", label: "Check-in", icon: <ClipboardCheck className="h-4 w-4 text-gold-600" /> },
-  { href: "/caddies", label: "Caddie rotation", icon: <Users className="h-4 w-4 text-gold-600" /> },
-  { href: "/finance", label: "Record payment", icon: <Wallet className="h-4 w-4 text-gold-600" /> },
-  { href: "/pos", label: "Café POS", icon: <Coffee className="h-4 w-4 text-gold-600" /> },
-  { href: "/maintenance", label: "Work order", icon: <Wrench className="h-4 w-4 text-gold-600" /> },
+  { href: "/reservations?new=1", label: "New tee time", icon: <CalendarPlus className={QA_ICON} /> },
+  { href: "/check-in", label: "Check-in", icon: <ClipboardCheck className={QA_ICON} /> },
+  { href: "/caddies", label: "Caddie rotation", icon: <Users className={QA_ICON} /> },
+  { href: "/finance", label: "Record payment", icon: <Wallet className={QA_ICON} /> },
+  { href: "/pos", label: "Café POS", icon: <Coffee className={QA_ICON} /> },
+  { href: "/maintenance", label: "Work order", icon: <Wrench className={QA_ICON} /> },
 ];
 
 export function FlightsToday({ date, limit = 12 }: { date: string; limit?: number }) {
@@ -48,6 +49,30 @@ export function FlightsToday({ date, limit = 12 }: { date: string; limit?: numbe
         { key: "pc", header: "Pace", render: (b) => { const p = paceOf(db, b); return p.status === "not_started" ? <span className="text-xs text-charcoal-400">—</span> : <StatusBadge status={p.status === "delayed" ? "delayed" : p.status} label={p.status === "behind" ? `+${p.behindMin}m behind` : p.status === "delayed" ? `Late ${p.lateStartMin}m` : undefined} />; } },
       ]} />
     </Card>
+  );
+}
+
+
+function Hero({ today, fin, booked, started, util, alerts }: { today: string; fin: { netRevenue: number; cashCollected: number }; booked: number; started: number; util: { used: number; slots: number; pct: number; closed: number }; alerts: { level: string }[] }) {
+  const { db, session } = useStore(); const role = ROLES.find((r) => r.id === session.role)!; const h = Number(db.meta.now.slice(11, 13)); const hello = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const crit = alerts.filter((a) => a.level === "critical").length; const warn = alerts.filter((a) => a.level === "warning").length;
+  const stats = [
+    { label: "Today's revenue", value: peso(fin.netRevenue), sub: `Cash collected ${peso(fin.cashCollected)}`, href: "/finance" },
+    { label: "Rounds booked", value: String(booked), sub: `${started} started · ${booked ? pct(started / booked) : "0%"} of booked`, href: "/reservations" },
+    { label: "Tee-sheet utilization", value: pct(util.pct), sub: `${util.used}/${util.slots} slots · ${util.closed} blocked`, href: "/reservations" },
+    { label: "Needs attention", value: String(alerts.length), sub: `${crit} critical · ${warn} warning`, href: "/golf-operations" },
+  ];
+  return (
+    <section className="relative mb-8 overflow-hidden rounded-3xl bg-gradient-to-br from-forest-800 via-forest-900 to-forest-950 p-6 text-white shadow-lift sm:p-8">
+      <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-gold/15 blur-3xl" /><div aria-hidden className="pointer-events-none absolute -bottom-32 left-1/3 h-72 w-72 rounded-full bg-emerald/20 blur-3xl" />
+      <div className="relative flex flex-wrap items-start justify-between gap-4">
+        <div><p className="text-[11px] font-semibold uppercase tracking-[.2em] text-gold-300">{fmtDate(today)}</p><h1 className="mt-1.5 text-[1.7rem] font-semibold leading-tight sm:text-[2.1rem]">{hello}, {role.user.replace(/^(Atty\.|Engr\.)\s*/, "").split(" ")[0]}</h1><p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/70">Executive dashboard · live from shared transactions <DemoBadge /></p></div>
+        <div className="hidden flex-wrap gap-2 md:flex">{QA.map((q) => <Link key={q.href + q.label} href={q.href} className="inline-flex h-9 items-center gap-2 rounded-lg bg-white/10 px-3 text-[13px] font-medium text-white ring-1 ring-white/15 backdrop-blur transition-colors hover:bg-white/20">{q.icon}{q.label}</Link>)}</div>
+      </div>
+      <div className="relative mt-7 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/10 lg:grid-cols-4">
+        {stats.map((x) => <Link key={x.label} href={x.href} className="group bg-forest-950/40 p-4 transition-colors hover:bg-forest-950/20 sm:p-5"><p className="text-[10.5px] font-semibold uppercase tracking-[.14em] text-white/55">{x.label}</p><p className="mt-1.5 font-display text-[1.7rem] font-semibold leading-none tabular-nums sm:text-[2.1rem]">{x.value}</p><p className="mt-1.5 text-xs text-white/60 group-hover:text-white/80">{x.sub}</p></Link>)}
+      </div>
+    </section>
   );
 }
 
@@ -70,13 +95,9 @@ function ExecDashboard() {
   const topDept = Object.entries(d.deptToday).sort((a, b) => b[1] - a[1])[0];
   return (
     <>
-      <PageHeader icon="LayoutDashboard" title="Executive Dashboard" sub={<span className="flex flex-wrap items-center gap-2">{fmtDate(today)} · all figures computed live from shared transaction records <DemoBadge /></span>} />
-      <QuickActions items={QA} />
-      <section aria-label="Key indicators" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <Kpi icon="Banknote" label="Today's revenue" value={peso(d.fin.netRevenue)} sub={`Cash collected ${peso(d.fin.cashCollected)}`} href="/finance" />
-        <Kpi icon="CalendarCheck" label="Rounds booked" value={d.booked} sub="players on active reservations" href="/reservations" />
-        <Kpi icon="Flag" label="Rounds started" value={d.started} sub={`${d.booked ? pct(d.started / d.booked) : "0%"} of booked`} href="/check-in" />
-        <Kpi icon="Gauge" label="Booking utilization" value={pct(d.u.pct)} sub={`${d.u.used}/${d.u.slots} slots · ${d.u.closed} blocked`} href="/reservations" />
+      <Hero today={today} fin={d.fin} booked={d.booked} started={d.started} util={d.u} alerts={d.alerts} />
+      <h2 className="mb-3 font-sans text-[11px] font-semibold uppercase tracking-[.16em] text-charcoal-500">Operations at a glance</h2>
+      <section aria-label="Key indicators" className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
         <Kpi icon="Users" label="Member vs public" value={`${d.mix.member + d.mix.guest} / ${d.mix.public}`} sub={`${d.mix.member} members · ${d.mix.guest} guests · ${d.mix.public} public`} />
         <Kpi icon="PieChart" label="Top department today" value={topDept ? peso(topDept[1]) : "—"} sub={topDept ? DEPTS.find((x) => x.id === topDept[0])?.label : ""} />
         <Kpi icon="UserCheck" label="Caddies on duty" value={d.cc.present} sub={`${d.cc.available} available`} href="/caddies" />
@@ -85,11 +106,12 @@ function ExecDashboard() {
         <Kpi icon="Wrench" label="Maintenance completion" value={pct(d.ms.rate)} sub={`${d.ms.open} open · ${d.ms.urgent} urgent`} href="/maintenance" tone={d.ms.urgent ? "red" : "neutral"} />
         <Kpi icon="HandCoins" label="Outstanding member balances" value={peso(d.memBal)} sub={`${d.owing} member accounts`} href="/finance?tab=receivables" tone="gold" />
         <Kpi icon="Trophy" label="Upcoming tournaments" value={d.upcomingEv.length} sub={d.upcomingEv[0] ? `Next: ${d.upcomingEv[0].name.slice(0, 22)} · ${fmtShort(d.upcomingEv[0].date)}` : "None scheduled"} href="/events" />
-        <Kpi icon="BellRing" label="Operational alerts" value={d.alerts.length} sub={`${d.alerts.filter((a) => a.level === "critical").length} critical · ${d.alerts.filter((a) => a.level === "warning").length} warning`} tone={d.alerts.some((a) => a.level === "critical") ? "red" : "gold"} />
         <Kpi icon="Receipt" label="Discounts today" value={peso(d.fin.discounts)} sub={`Refunds ${peso(d.fin.refunds)}`} />
         <Kpi icon="Handshake" label="Caddie payables (not revenue)" value={peso(d.fin.payables)} sub="owed to contractor caddies" href="/caddies" />
+        <Kpi icon="Hourglass" label="Open range & café tabs" value={db.rangeTabs.filter((t) => t.status === "open").length + db.cafeTabs.filter((t) => t.status === "open").length} sub="unbilled running tabs" href="/range" />
+        <Kpi icon="BellRing" label="Operational alerts" value={d.alerts.length} sub={`${d.alerts.filter((a) => a.level === "critical").length} critical · ${d.alerts.filter((a) => a.level === "warning").length} warning`} tone={d.alerts.some((a) => a.level === "critical") ? "red" : "gold"} />
       </section>
-
+      <h2 className="mb-3 font-sans text-[11px] font-semibold uppercase tracking-[.16em] text-charcoal-500">Performance</h2>
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2"><CardHeader title="Daily revenue trend" sub="Net revenue (accrual) vs cash collected · last 14 days" /><div className="p-4"><Chart type="area" data={d.trend} xKey="date" series={[{ key: "Revenue", label: "Net revenue" }, { key: "Cash collected", label: "Cash collected" }]} money /></div></Card>
         <Card><CardHeader title="Revenue by department" sub="Month to date" /><div className="p-4"><Chart type="pie" data={d.dept} xKey="name" series={[{ key: "value", label: "Revenue" }]} money height={270} /></div></Card>

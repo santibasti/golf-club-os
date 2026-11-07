@@ -50,7 +50,7 @@ export default function CaddiesPage() {
           {queue.length === 0 ? <Empty icon="UserX" title="Queue empty" text="Time-in caddies from the roster." /> : <ol className="scroll-thin max-h-[560px] divide-y divide-charcoal-100/70 overflow-y-auto">{queue.map((c, i) => (
             <li key={c.id} className={cn("flex items-center gap-3 px-4 py-2.5", i === 0 && "bg-gold-50")}><span className={cn("grid h-7 w-7 place-items-center rounded-full text-xs font-bold", i === 0 ? "bg-gold text-white" : "bg-charcoal-100 text-charcoal-600")}>{i + 1}</span><Avatar name={c.name} seed={c.colorSeed} size={30} />
               <button className="min-w-0 flex-1 text-left" onClick={() => setProf(c.id)}><span className="block truncate text-sm font-medium">{c.name}</span><span className="block text-xs text-charcoal-500">{c.id} · cat {c.category} · {c.classification} · {Cd.roundsToday(db, c.id)} round(s) today</span></button>
-              {mgr && <Button size="sm" variant="ghost" onClick={() => setUnav(c.id)}>Unavailable</Button>}</li>))}</ol>}
+              {mgr && <Button size="sm" variant="ghost" onClick={() => setUnav(c.id)}>Mark unavailable</Button>}</li>))}</ol>}
         </Card>
         <div className="space-y-4 xl:col-span-3">
           <Card><CardHeader title="Flights needing caddies" sub="Assign the next caddie, or accommodate a preferred request / override (reason required, recorded)" />
