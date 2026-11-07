@@ -62,7 +62,7 @@ describe("reservations", () => {
     Bk.createBooking(db, RES, { date: addD(TODAY, 2), time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 30), contactName: "C", contactPhone: "1" });
   });
   it("member status drives eligibility and rate; guest limits apply", () => {
-    const db = fresh(); const m = activeMember(db, 3); const c = db.customers.find((x) => x.id === m.customerId)!; const plan = db.plans.find((p) => p.id === m.planId)!;
+    const db = fresh(); const m = db.members.find((x) => x.status === "active" && !db.bookings.some((b) => b.date === addD(TODAY, 3) && b.players.some((p) => p.memberId === x.id)))!; const c = db.customers.find((x) => x.id === m.customerId)!; const plan = db.plans.find((p) => p.id === m.planId)!;
     const date = addD(TODAY, 3); const s = openSlot(db, date);
     const players = [{ name: c.name, type: "member" as const, memberId: m.id, customerId: c.id }, ...publicPlayers(db, plan.guestsPerRound + 1, 130).map((g) => ({ name: g.name, type: "guest" as const, sponsorId: m.id }))];
     expect(err(() => Bk.createBooking(db, RES, { date, time: s.time, holes: 18, channel: "member", players, contactName: c.name, contactPhone: "1", contactMemberId: m.id })).code).toBe("guest_limit");
@@ -77,7 +77,7 @@ describe("reservations", () => {
     expect(err(() => Bk.createBooking(db, RES, { date: far, time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 1, 10), contactName: "X", contactPhone: "1", override: true })).code).toBe("forbidden");
   });
   it("same person cannot be in two overlapping bookings", () => {
-    const db = fresh(); const date = addD(TODAY, 2); const cu = db.customers.find((c) => !c.memberId)!; const p = [{ name: cu.name, type: "public" as const, customerId: cu.id }]; const a = openSlot(db, date, "07:00"); Bk.createBooking(db, RES, { date, time: a.time, holes: 18, channel: "phone", players: p, contactName: "A", contactPhone: "1" });
+    const db = fresh(); const date = addD(TODAY, 2); const cu = db.customers.find((c) => !c.memberId && !db.bookings.some((b) => b.date === date && b.players.some((p) => p.customerId === c.id)))!; const p = [{ name: cu.name, type: "public" as const, customerId: cu.id }]; const a = openSlot(db, date, "07:00"); Bk.createBooking(db, RES, { date, time: a.time, holes: 18, channel: "phone", players: p, contactName: "A", contactPhone: "1" });
     const b = openSlot(db, date, "09:00"); expect(err(() => Bk.createBooking(db, RES, { date, time: b.time, holes: 18, channel: "phone", players: p, contactName: "A", contactPhone: "1" })).message).toMatch(/already in booking/);
   });
   it("late cancellation forfeits the deposit; timely cancellation refunds", () => {

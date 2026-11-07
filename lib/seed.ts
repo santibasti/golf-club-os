@@ -83,6 +83,7 @@ export function createSeedDB(todayOverride?: string): DB {
   db.holes[3].condition = "fair"; db.holes[13].condition = "poor"; db.holes[8].condition = "excellent"; db.holes[16].condition = "excellent"; db.holes[10].condition = "fair";
   db.maintBudget = { Greens: 90000, Fairways: 70000, "Tee boxes": 25000, Bunkers: 30000, Rough: 20000, Irrigation: 60000, Drainage: 25000, "Trees & landscaping": 35000, Pathways: 20000, "Clubhouse exterior": 30000, "Course equipment": 55000, "Golf carts": 40000 };
 
+  const shuffle = <T,>(xs: T[]) => { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const used = new Set<string>();
   for (let i = 0; i < 150; i++) {
     const name = fullName(rng, used); const age = 12 + Math.floor(rng() * 60);
@@ -280,14 +281,16 @@ export function createSeedDB(todayOverride?: string): DB {
     // generate bookings
     const wk = [0, 6].includes(dow(date)) ? 1.15 : 0.82; const picks: { time: string }[] = [];
     for (const t of gridT) { const h = Math.floor(toMin(t) / 60); if (rng() < (hourWeight[h] ?? 0.2) * wk * 0.55) picks.push({ time: t }); }
+    if (isToday) for (const t of ["08:40", "09:20", "09:40", "10:10"]) if (gridT.includes(t)) { const ex = picks.find((x) => x.time === t); if (ex) (ex as { force?: boolean }).force = true; else picks.push({ time: t, force: true } as { time: string }); } // guaranteed demo states: a delayed flight and upcoming arrivals
+    picks.sort((a, b) => a.time.localeCompare(b.time));
     let started = 0;
     const created: { b: ReturnType<typeof Bk.createBooking>; cancel: boolean }[] = [];
     const prior = addDays(date, -1);
     picks.forEach((p, i) => {
-      if (isToday && toMin(p.time) < NOW_MIN && toMin(p.time) > 6 * 60 + 60 && started > 9) return;
+      if (isToday && toMin(p.time) < NOW_MIN && toMin(p.time) > 6 * 60 + 60 && started > 9 && !(p as { force?: boolean }).force) return;
       if (isToday && toMin(p.time) < NOW_MIN && toMin(p.time) >= 6 * 60) started++;
-      setNow(prior, fromMin(9 * 60 + i * 7)); const input = makeBookingInput(date, p.time, false);
-      const b = tryDo(() => Bk.createBooking(db, RES, { ...input, override: true }));
+      setNow(prior, fromMin(9 * 60 + i * 7)); let b: ReturnType<typeof Bk.createBooking> | undefined;
+      for (let attempt = 0; attempt < ((p as { force?: boolean }).force ? 12 : 1) && !b; attempt++) { const input = makeBookingInput(date, p.time, false); b = tryDo(() => Bk.createBooking(db, RES, { ...input, override: true })); }
       if (!b) return; if (b.status === "booked") { setNow(prior, fromMin(9 * 60 + i * 7 + 3)); Bk.confirmBooking(db, RES, b.id); }
       created.push({ b, cancel: rng() < 0.07 });
     });
@@ -335,7 +338,7 @@ export function createSeedDB(todayOverride?: string): DB {
     // events & membership workflow items
     pastEvents.forEach((pe) => { if (date === addDays(today, -pe.off) && !isToday) {
       setNow(date, "05:45"); const { event } = Ev.createEvent(db, TC, { name: pe.name, type: pe.type, date, start: "07:00", end: "13:30", organizer: pe.type === "corporate" ? "Meridian Bank (fictional)" : "Sierra Verde Golf Committee", expected: pe.n + 4, fee: pe.fee, venue: "18-hole course + clubhouse", format: pe.fmt, blockTeeSheet: false });
-      const pool = [...db.customers].sort(() => rng() - 0.5).slice(0, pe.n); setNow(date, "06:30");
+      const pool = shuffle(db.customers).slice(0, pe.n); setNow(date, "06:30");
       pool.forEach((c) => tryDo(() => Ev.registerPlayer(db, TC, event.id, { name: c.name, customerId: c.id, memberId: c.memberId && db.members.find((m) => m.id === c.memberId)?.status === "active" ? c.memberId : undefined, payMethod: rng() < 0.85 ? payMix() : undefined })));
       Ev.assignFlights(db, TC, event.id); Ev.addCatering(db, TC, event.id, "Boxed lunch", pe.n, pe.n * 280); Ev.confirmCatering(db, TC, event.id, event.catering[0].id);
       setNow(date, "13:00"); for (const r of event.registrations) Ev.recordScore(db, TC, event.id, r.id, 74 + Math.floor(rng() * 28)); Ev.setEventStatus(db, TC, event.id, "completed");
@@ -369,7 +372,7 @@ export function createSeedDB(todayOverride?: string): DB {
   const upcoming = [{ name: "Sierra Verde Founders' Cup", type: "tournament" as const, off: 9, fee: 3500, n: 34, exp: 52, fmt: "Gross stroke play (demo scoring)", block: true }, { name: "Corporate Golf Day — Meridian Bank", type: "corporate" as const, off: 16, fee: 3200, n: 18, exp: 40, fmt: "Scramble — 4-person teams", block: true }, { name: "Charity Scramble for Scholars", type: "charity" as const, off: 23, fee: 2800, n: 9, exp: 60, fmt: "Scramble", block: true }, { name: "Members' Night Dinner", type: "social" as const, off: 12, fee: 1500, n: 21, exp: 80, fmt: "Dinner at the clubhouse", block: false }];
   for (const u of upcoming) {
     const d = addDays(today, u.off); const { event } = Ev.createEvent(db, TC, { name: u.name, type: u.type, date: d, start: u.type === "social" ? "18:00" : "06:30", end: u.type === "social" ? "22:00" : "12:30", organizer: u.type === "corporate" ? "Meridian Bank (fictional)" : "Sierra Verde Golf Committee", expected: u.exp, fee: u.fee, venue: u.type === "social" ? "Clubhouse ballroom" : "18-hole course", format: u.fmt, blockTeeSheet: u.block });
-    [...db.customers].sort(() => rng() - 0.5).slice(0, u.n).forEach((c) => tryDo(() => Ev.registerPlayer(db, TC, event.id, { name: c.name, customerId: c.id, payMethod: rng() < 0.55 ? payMix() : undefined })));
+    shuffle(db.customers).slice(0, u.n).forEach((c) => tryDo(() => Ev.registerPlayer(db, TC, event.id, { name: c.name, customerId: c.id, payMethod: rng() < 0.55 ? payMix() : undefined })));
     if (u.type === "tournament") Ev.assignFlights(db, TC, event.id);
     event.resources.push({ id: nextId(db, "resource", "RS-", 4), text: "Starter table & scoreboard", done: true }, { id: nextId(db, "resource", "RS-", 4), text: `${Math.ceil(u.n / 2)} golf carts blocked`, done: false });
     if (u.type !== "social") Ev.addCatering(db, TC, event.id, "Lunch buffet", u.n, u.n * 450);

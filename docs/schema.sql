@@ -1,0 +1,84 @@
+-- Golf Club OS — PostgreSQL / Supabase-ready schema (reference design for production; the demo uses an in-browser store with the same entities).
+-- Multi-tenant: EVERY table carries club_id and is protected by row-level security. Money = numeric(12,2), PHP. Times: club-local, stored as timestamptz + club timezone.
+create extension if not exists "pgcrypto";
+
+create table clubs (id uuid primary key default gen_random_uuid(), name text not null, short_name text, timezone text not null default 'Asia/Manila', currency text not null default 'PHP', settings jsonb not null default '{}', created_at timestamptz default now());
+create table courses (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, name text not null, holes_count int not null default 18);
+create table holes (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, course_id uuid not null references courses, hole_no int not null, par int not null check (par between 3 and 6), yards int, stroke_index int, condition text default 'good', team text, unique (course_id, hole_no));
+create table facilities (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, name text not null, kind text not null);
+
+-- identity & authorization
+create table roles (id text primary key, label text not null);
+create table permissions (key text primary key, label text, grp text);
+create table role_permissions (club_id uuid not null references clubs, role_id text references roles, permission_key text references permissions, primary key (club_id, role_id, permission_key));
+create table users (id uuid primary key references auth.users, club_id uuid not null references clubs, full_name text not null, role_id text not null references roles, active boolean default true);
+create table staff (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, user_id uuid references users, name text not null, department text, title text, team text, phone text, active boolean default true);
+
+-- customers & membership
+create table customers (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, name text not null, phone text, email text, address text, birth_date date, notes text, created_at timestamptz default now());
+create table membership_plans (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, name text not null, active boolean default true, joining_fee numeric(12,2), annual_dues numeric(12,2), billing_cycle text, green_fee_18 numeric(12,2), green_fee_9 numeric(12,2), guests_per_round int, guest_rate_18 numeric(12,2), advance_days int, priority_access boolean, cart_discount_pct numeric, range_discount_pct numeric, cafe_discount_pct numeric, account_charging boolean, credit_limit numeric(12,2), term_months int);
+create table membership_benefits (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, plan_id uuid references membership_plans, benefit text, value jsonb);
+create table members (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_no text not null, customer_id uuid not null references customers, plan_id uuid not null references membership_plans, status text not null check (status in ('applicant','pending_approval','active','suspended','expired','cancelled')), application_date date, activation_date date, expiry_date date, billing_pref text, next_billing_date date, emergency_contact jsonb, guest_limit_override int, unique (club_id, member_no));
+create table membership_applications (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_id uuid references members, docs jsonb, reviewed_by uuid references users, decided_at timestamptz, decision text);
+create table member_accounts (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_id uuid unique references members);
+create table guest_sponsorships (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_id uuid references members, booking_id uuid, guest_name text, guest_customer_id uuid references customers, play_date date, fee numeric(12,2));
+
+-- tee sheet
+create table tee_slots (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, course_id uuid references courses, slot_date date not null, tee_time time not null, tee text not null default '1', capacity int not null, unique (club_id, course_id, slot_date, tee_time, tee));
+create table bookings (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, ref text not null, slot_id uuid references tee_slots, play_date date not null, tee_time time not null, tee text, holes int check (holes in (9,18)), channel text, status text not null check (status in ('booked','confirmed','arrived','ready','started','completed','cancelled','no_show')), contact_customer_id uuid references customers, contact_member_id uuid references members, contact_name text, contact_phone text, notes text, no_caddie boolean, deposit_payment_id uuid, cancelled_at timestamptz, cancel_reason text, late_cancel boolean, created_by uuid references users, created_at timestamptz default now(), unique (club_id, ref));
+-- capacity guard: a trigger (or serializable txn) must ensure sum(players) per slot <= tee_slots.capacity and bookings.status not in (cancelled,no_show) release capacity.
+create table flights (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, booking_id uuid unique references bookings, flight_no int, arrived_at timestamptz, ready_at timestamptz, started_at timestamptz, finished_at timestamptz, delay_reason text, suspended boolean default false, requirements_waived text);
+create table flight_players (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, booking_id uuid references bookings, name text not null, player_type text not null check (player_type in ('member','guest','public')), customer_id uuid references customers, member_id uuid references members, sponsor_member_id uuid references members, checked_in boolean default false);
+create table booking_rates (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, flight_player_id uuid references flight_players, rate numeric(12,2) not null, rate_label text, computed_at timestamptz default now());
+create table waitlist (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, play_date date, from_time time, to_time time, players int, name text, phone text, status text default 'waiting', booking_id uuid references bookings);
+create table course_closures (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, play_date date not null, from_time time, to_time time, closure_type text check (closure_type in ('full','partial','tee')), tee text, holes int[], category text, reason text not null, active boolean default true, work_order_id uuid, event_id uuid, created_by uuid references users, lifted_by uuid references users, lifted_at timestamptz);
+create table starter_events (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, flight_id uuid references flights, kind text, note text, at timestamptz default now(), by_user uuid references users);
+create table pace_checkpoints (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, flight_id uuid references flights, hole int, expected_at timestamptz, recorded_at timestamptz, note text);
+
+-- caddies
+create table caddies (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, caddie_no text not null, name text not null, phone text, classification text check (classification in ('employee','contractor','freelance')), category text, priority int, status text not null, notes text);
+create table caddie_attendance (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, caddie_id uuid references caddies, work_date date, time_in time, time_out time, status text, unique (caddie_id, work_date));
+create table caddie_rotation_events (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, caddie_id uuid references caddies, booking_id uuid references bookings, kind text, reason text, expected_caddie_id uuid, by_user uuid references users, at timestamptz default now());
+create table caddie_assignments (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, caddie_id uuid references caddies, booking_id uuid references bookings, status text, fee numeric(12,2), special_fee numeric(12,2), extra_fee numeric(12,2), tip numeric(12,2), started_at timestamptz, completed_at timestamptz, charge_id uuid);
+-- a caddie may hold only ONE active assignment:
+create unique index one_active_assignment_per_caddie on caddie_assignments (caddie_id) where status in ('reserved','assigned','on_course');
+create table caddie_settlements (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, caddie_id uuid references caddies, assignment_id uuid unique references caddie_assignments, gross numeric(12,2), payable numeric(12,2), club_retained numeric(12,2), status text default 'pending', settled_at timestamptz, settled_by uuid references users);
+
+-- carts
+create table golf_carts (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, cart_no int not null, cart_type text, seats int, fuel text, condition text, battery int, status text not null check (status in ('available','reserved','dispatched','in_use','returned','inspection','maintenance')), unique (club_id, cart_no));
+create table cart_dispatches (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, cart_id uuid references golf_carts, booking_id uuid references bookings, reserved_at timestamptz, dispatched_at timestamptz, returned_at timestamptz, staff_id uuid references staff, fee numeric(12,2), charge_id uuid, damage text, status text);
+create unique index one_open_dispatch_per_cart on cart_dispatches (cart_id) where status in ('reserved','dispatched');
+
+-- maintenance & assets
+create table maintenance_tasks (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, title text, category text, location text, every_days int, next_due date, team text, est_cost numeric(12,2), active boolean default true);
+create table work_orders (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, code text not null, location text, hole int, category text, description text, priority text, team text, status text check (status in ('scheduled','assigned','in_progress','for_inspection','completed')), start_date date, target_date date, completed_at timestamptz, est_cost numeric(12,2), actual_cost numeric(12,2), asset_id uuid, cart_id uuid references golf_carts, closure_id uuid, notes jsonb, inspections jsonb, labor jsonb, materials jsonb, created_by uuid references users);
+create table equipment (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, code text, name text, category text, condition text, custodian text, location text, status text, next_service_date date, purchase_value numeric(12,2));
+create table inventory (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, sku text, name text, category text, unit text, qty numeric, reorder_level numeric, unit_cost numeric(12,2), pos_price numeric(12,2), active boolean default true);
+create table inventory_movements (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, item_id uuid references inventory, movement_type text, qty numeric not null, ref text, by_user uuid references users, at timestamptz default now());
+
+-- POS / range
+create table pos_orders (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, order_no text, member_id uuid references members, customer_name text, subtotal numeric(12,2), discount numeric(12,2), total numeric(12,2), pay_method text, fulfilment text, charge_id uuid, cashier_id uuid references users, voided_by uuid, void_reason text, created_at timestamptz default now());
+create table pos_order_items (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, order_id uuid references pos_orders, item_id uuid references inventory, name text, qty int, unit_price numeric(12,2));
+create table range_sales (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_id uuid references members, customer_name text, items jsonb, bay int, ends_at timestamptz, amount numeric(12,2), discount numeric(12,2), charge_id uuid);
+
+-- events
+create table events (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, name text, event_type text, event_date date, start_time time, end_time time, organizer text, expected int, fee numeric(12,2), venue text, status text, closure_id uuid, format text);
+create table tournament_registrations (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, event_id uuid references events, customer_id uuid, member_id uuid, name text, flight int, charge_id uuid, status text);
+create table scores (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, registration_id uuid references tournament_registrations, gross int check (gross between 30 and 200), recorded_by uuid references users);
+
+-- finance: charge (accrual) / payment (cash) / refund are DIFFERENT records
+create table financial_charges (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, invoice_no text, charge_date date not null, dept text not null, description text, customer_id uuid references customers, member_id uuid references members, booking_id uuid references bookings, amount numeric(12,2) not null check (amount >= 0), discount numeric(12,2) default 0 check (discount >= 0 and discount <= amount), paid numeric(12,2) default 0, refunded numeric(12,2) default 0, third_party_payable numeric(12,2) default 0, status text not null check (status in ('unpaid','partial','paid','refunded','written_off','voided')), bill_to text, billing_key text, unique (club_id, billing_key));
+create table payments (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, receipt_no text, charge_id uuid references financial_charges, kind text check (kind in ('payment','deposit')), amount numeric(12,2) not null check (amount > 0), method text, shift_id uuid, received_by uuid references users, paid_at timestamptz default now());
+create table refunds (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, charge_id uuid references financial_charges, payment_id uuid references payments, amount numeric(12,2) not null check (amount > 0), method text, reason text not null, approved_by uuid not null references users, shift_id uuid, at timestamptz default now());
+create table cashier_shifts (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, cashier_id uuid references users, opened_at timestamptz, closed_at timestamptz, opening_float numeric(12,2), expected_cash numeric(12,2), counted_cash numeric(12,2), variance numeric(12,2), status text);
+create unique index one_open_shift_per_club on cashier_shifts (club_id) where status = 'open';
+-- payments applied may never exceed net charge: enforce with a constraint trigger on payments/financial_charges (paid <= amount - discount).
+
+create table membership_charges (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, member_id uuid references members, charge_id uuid references financial_charges, period text);
+create table notifications (id uuid primary key default gen_random_uuid(), club_id uuid not null references clubs, kind text, title text, detail text, href text, created_at timestamptz default now());
+create table audit_logs (id bigint generated always as identity primary key, club_id uuid not null references clubs, at timestamptz default now(), actor_id uuid, actor_role text, action text not null, entity text, entity_id text, detail text);  -- append-only: revoke update/delete
+
+-- Row-level security template (apply to every table above that has club_id):
+--   alter table bookings enable row level security;
+--   create policy tenant_isolation on bookings using (club_id = (select club_id from users where id = auth.uid()));
+--   Write policies must additionally check role_permissions for the action.
