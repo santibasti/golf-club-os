@@ -1,4 +1,4 @@
-import type { DB, PaymentMethod, PosOrder, RangeSale, RangeTab } from "../types";
+import type { CafeTab, DB, PaymentMethod, PosOrder, RangeSale, RangeTab } from "../types";
 import { Ctx, audit, fail, hasPerm, needPerm, nextId, note, req, requireText, today } from "./core";
 import { applyPayment, createCharge, memberBalance, openShift, outstanding, refundCharge, voidCharge } from "./finance";
 import { adjustStock } from "./inventory";
@@ -148,4 +148,62 @@ export function billOutRangeTab(db: DB, ctx: Ctx, tabId: string, method: PayMeth
   if (method !== "member_account" && tot.total > 0) applyPayment(db, ctx, { chargeId: chg.id, amount: tot.total, method: method as PaymentMethod });
   db.rangeSales.push(sale); t.status = "billed"; t.billedAt = db.meta.now; t.chargeId = chg.id; t.saleId = id; t.method = method; t.total = tot.total; t.discount = tot.discount; t.bay = undefined;
   audit(db, ctx, "range.tab.bill", "range_tab", t.id, `${t.no} billed ₱${tot.total} via ${method}`); return sale;
+}
+
+/* ------------------------- running café tabs ------------------------- */
+export function cafeTabTotals(db: DB, t: CafeTab, manualPct = 0) {
+  const subtotal = r2(t.lines.reduce((a, l) => a + l.qty * l.price, 0));
+  const m = t.memberId ? db.members.find((x) => x.id === t.memberId && x.status === "active") : undefined; const memberPct = m ? (db.plans.find((p) => p.id === m.planId)?.cafeDiscountPct ?? 0) : 0;
+  const pct = Math.max(memberPct, manualPct); const discount = r2((subtotal * pct) / 100);
+  return { subtotal, memberPct, pct, discount, total: r2(subtotal - discount), items: t.lines.reduce((a, l) => a + l.qty, 0), unserved: t.lines.filter((l) => l.fulfil !== "served").length };
+}
+export function openCafeTab(db: DB, ctx: Ctx, i: { label?: string; memberId?: string }): CafeTab {
+  needPerm(db, ctx, "pos.sell");
+  const m = i.memberId ? db.members.find((x) => x.id === i.memberId) : undefined; if (i.memberId && !m) fail("Member not found.", "validation");
+  if (m && m.status !== "active") fail(`Member ${m.id} is ${m.status.replace("_", " ")} — member discount and account charging are unavailable. Open the tab as a regular customer instead.`, "eligibility");
+  const cust = m ? db.customers.find((c) => c.id === m.customerId) : undefined; const label = (i.label ?? "").trim() || cust?.name || ""; if (!label) fail("Enter a table / golfer name or select a member.", "validation");
+  if (db.cafeTabs.some((t) => t.status === "open" && ((m && t.memberId === m.id) || t.label.toLowerCase() === label.toLowerCase()))) fail(`"${label}" already has an open café tab. Add items to it instead.`, "duplicate");
+  const t: CafeTab = { id: nextId(db, "cafeTab", "CT-", 5), no: nextId(db, "cafeTabNo", "CTAB-", 5), openedAt: db.meta.now, label, customerId: cust?.id, memberId: m?.id, status: "open", lines: [] };
+  db.cafeTabs.push(t); audit(db, ctx, "cafe.tab.open", "cafe_tab", t.id, `${t.no} ${label}`); return t;
+}
+/** Adds items and deducts stock immediately (the kitchen is preparing them). */
+export function addCafeLine(db: DB, ctx: Ctx, tabId: string, itemId: string, qty: number) {
+  needPerm(db, ctx, "pos.sell");
+  const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  const it = req(db.inventory.find((x) => x.id === itemId && x.price != null), "Unknown menu item."); if (!Number.isInteger(qty) || qty < 1) fail("Quantity must be a whole number ≥ 1.", "validation");
+  adjustStock(db, ctx, itemId, -qty, "sale", t.no, `Café tab ${t.label}`);
+  t.lines.push({ id: nextId(db, "cafeLine", "CL-", 6), itemId, name: it.name, qty, price: it.price!, at: db.meta.now, fulfil: "new" });
+  audit(db, ctx, "cafe.tab.add", "cafe_tab", t.id, `${qty}× ${it.name}`); return t;
+}
+export function setCafeLineStatus(db: DB, ctx: Ctx, tabId: string, lineId: string, st: "new" | "preparing" | "served") {
+  needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is closed.");
+  req(t.lines.find((x) => x.id === lineId), "Line not found.").fulfil = st;
+}
+export function removeCafeLine(db: DB, ctx: Ctx, tabId: string, lineId: string, reason?: string) {
+  needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is closed.");
+  const l = req(t.lines.find((x) => x.id === lineId), "Line not found.");
+  if (l.fulfil === "served") { needPerm(db, ctx, "pos.void"); requireText(reason, "Reason for removing a served item", 3); }
+  adjustStock(db, ctx, l.itemId, l.qty, "void_return", t.no, "Tab line removed"); t.lines = t.lines.filter((x) => x.id !== lineId);
+  audit(db, ctx, "cafe.tab.void_line", "cafe_tab", t.id, `Removed ${l.qty}× ${l.name}${reason ? ": " + reason : ""}`);
+}
+export function cancelCafeTab(db: DB, ctx: Ctx, tabId: string) {
+  needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("Only open tabs can be cancelled.");
+  if (t.lines.length) fail("Remove all items first, or bill the tab out.", "validation"); t.status = "cancelled"; audit(db, ctx, "cafe.tab.cancel", "cafe_tab", t.id, t.no);
+}
+/** Bill-out: one charge + one payment (or member-account posting) for everything on the tab, plus a POS order record for café reports. */
+export function billOutCafeTab(db: DB, ctx: Ctx, tabId: string, i: { method: PayMethod; manualDiscountPct?: number }): PosOrder {
+  needPerm(db, ctx, "pos.sell"); const t = req(db.cafeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  if (!t.lines.length) fail("The tab has no items to bill.", "validation");
+  const manual = i.manualDiscountPct ?? 0; if (manual < 0 || manual > 100) fail("Discount must be between 0 and 100%.", "validation");
+  if (manual > db.settings.authority.posDiscountStaffMaxPct) needPerm(db, ctx, "pos.discount");
+  const tot = cafeTabTotals(db, t, manual); const m = t.memberId ? db.members.find((x) => x.id === t.memberId) : undefined;
+  if (i.method === "member_account") { if (!m) fail("Member account charging needs a member on the tab.", "validation"); memberForCharging(db, m!.id, tot.total); }
+  else if (!openShift(db)) fail("No open cashier shift. Open a shift before taking payments.", "no_shift");
+  const id = nextId(db, "pos", "PO-", 6); const no = nextId(db, "posNo", "POS-", 5);
+  const chg = createCharge(db, ctx, { dept: "cafe", description: `Café tab ${t.no} (${t.label}) → ${no}`, amount: tot.subtotal, discount: tot.discount, discountReason: tot.pct ? (tot.memberPct >= manual ? `Member discount ${tot.pct}%` : `Authorised discount ${tot.pct}%`) : undefined, name: t.label, customerId: t.customerId, memberId: t.memberId, refType: "pos_order", refId: id, billTo: i.method === "member_account" ? "member_account" : "counter" });
+  const agg: Record<string, PosOrder["items"][number]> = {}; for (const l of t.lines) (agg[l.itemId] ??= { itemId: l.itemId, name: l.name, qty: 0, price: l.price }).qty += l.qty;
+  const order: PosOrder = { id, no, at: db.meta.now, date: today(db), items: Object.values(agg), subtotal: tot.subtotal, discountPct: tot.pct, discount: tot.discount, total: tot.total, method: i.method, fulfil: "served", memberId: t.memberId, customerName: t.label, chargeId: chg.id, cashier: ctx.actor, note: `Tab ${t.no}` };
+  if (i.method !== "member_account" && tot.total > 0) applyPayment(db, ctx, { chargeId: chg.id, amount: tot.total, method: i.method as PaymentMethod });
+  db.posOrders.push(order); t.status = "billed"; t.billedAt = db.meta.now; t.orderId = id; t.chargeId = chg.id; t.method = i.method; t.total = tot.total; t.lines.forEach((l) => { l.fulfil = "served"; });
+  audit(db, ctx, "cafe.tab.bill", "cafe_tab", t.id, `${t.no} billed ₱${tot.total} via ${i.method}`); return order;
 }

@@ -130,6 +130,12 @@ export interface RangeTab {
   lines: { id: string; code: string; name: string; qty: number; price: number; at: string; minutes?: number; balls?: number }[];
   billedAt?: string; chargeId?: string; saleId?: string; method?: PaymentMethod | "member_account"; total?: number; discount?: number;
 }
+/** Running café tab (table or golfer): lines accumulate and are sent to the kitchen; ONE charge + payment at bill-out. */
+export interface CafeTab {
+  id: string; no: string; openedAt: string; label: string; customerId?: string; memberId?: string; status: "open" | "billed" | "cancelled";
+  lines: { id: string; itemId: string; name: string; qty: number; price: number; at: string; fulfil: "new" | "preparing" | "served" }[];
+  billedAt?: string; orderId?: string; chargeId?: string; method?: PaymentMethod | "member_account"; total?: number;
+}
 export type PaymentMethod = "cash" | "card" | "gcash" | "bank_transfer";
 export type Dept = "green" | "cart" | "caddie" | "membership" | "cafe" | "range" | "event" | "other";
 export type ChargeStatus = "unpaid" | "partial" | "paid" | "refunded" | "written_off" | "voided";
@@ -190,7 +196,7 @@ export interface DB {
   carts: Cart[]; cartDispatches: CartDispatch[];
   staff: Staff[]; workOrders: WorkOrder[]; recurring: RecurringTask[]; assets: Asset[];
   inventory: InventoryItem[]; movements: InventoryMovement[];
-  posOrders: PosOrder[]; rangeSales: RangeSale[]; rangeTabs: RangeTab[];
+  posOrders: PosOrder[]; rangeSales: RangeSale[]; rangeTabs: RangeTab[]; cafeTabs: CafeTab[];
   charges: Charge[]; payments: Payment[]; refunds: Refund[]; shifts: Shift[];
   events: ClubEvent[]; announcements: Announcement[]; feedback: Feedback[]; audit: AuditLog[];
   maintBudget: Record<string, number>; // monthly budget by maintenance category

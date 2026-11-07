@@ -261,3 +261,24 @@ describe("Driving range — running tabs", () => {
     const t2 = Pos.openRangeTab(db, RNG, { name: "No Bay" }); expect(err(() => Pos.addRangeLine(db, RNG, t2.id, "SES-30", 1)).code).toBe("validation"); expect(err(() => Pos.billOutRangeTab(db, RNG, t2.id, "cash")).code).toBe("validation"); Pos.cancelRangeTab(db, RNG, t2.id); expect(t2.status).toBe("cancelled");
   });
 });
+
+describe("Café — running tabs", () => {
+  it("accumulates orders without charging, deducts stock, then bills once at bill-out", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const C = as("cafe"); const coffee = db.inventory.find((i) => i.sku === "COF-02")!, meal = db.inventory.find((i) => i.sku === "MEL-04")!; const s0 = coffee.qty;
+    const ch0 = db.charges.length, pay0 = db.payments.length, po0 = db.posOrders.length, rev0 = totalRevenue(db, { from: TODAY, to: TODAY });
+    const t = Pos.openCafeTab(db, C, { label: "Table 9 test" }); Pos.addCafeLine(db, C, t.id, coffee.id, 2); const l2 = Pos.addCafeLine(db, C, t.id, meal.id, 1).lines.at(-1)!; Pos.addCafeLine(db, C, t.id, coffee.id, 1);
+    expect(db.charges.length).toBe(ch0); expect(db.payments.length).toBe(pay0); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev0); expect(coffee.qty).toBe(s0 - 3);
+    Pos.removeCafeLine(db, C, t.id, l2.id); expect(meal.qty).toBe(db.inventory.find((i) => i.sku === "MEL-04")!.qty); expect(Pos.cafeTabTotals(db, t).total).toBe(330);
+    const o = Pos.billOutCafeTab(db, C, t.id, { method: "cash" }); expect(o.total).toBe(330); expect(db.charges.length).toBe(ch0 + 1); expect(db.payments.length).toBe(pay0 + 1); expect(db.posOrders.length).toBe(po0 + 1); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev0 + 330);
+    expect(t.status).toBe("billed"); expect(err(() => Pos.billOutCafeTab(db, C, t.id, { method: "cash" })).message).toMatch(/already billed/);
+  });
+  it("member discount + account billing at bill-out; discount authority; stock; duplicates; served-line removal needs authority", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const C = as("cafe"); const m = db.members.filter((x) => x.status === "active")[45]; const plan = db.plans.find((p) => p.id === m.planId)!; const item = db.inventory.find((i) => i.sku === "MEL-01")!;
+    const t = Pos.openCafeTab(db, C, { memberId: m.id }); expect(err(() => Pos.openCafeTab(db, C, { memberId: m.id })).code).toBe("duplicate"); const line = Pos.addCafeLine(db, C, t.id, item.id, 2).lines[0];
+    expect(err(() => Pos.addCafeLine(db, C, t.id, item.id, item.qty + 1)).code).toBe("stock"); Pos.setCafeLineStatus(db, C, t.id, line.id, "served"); expect(err(() => Pos.removeCafeLine(db, CASH, t.id, line.id, "oops")).code).toBe("forbidden");
+    expect(err(() => Pos.billOutCafeTab(db, CASH, t.id, { method: "cash", manualDiscountPct: 50 })).code).toBe("forbidden");
+    const bal = Fn.memberBalance(db, m.id); const o = Pos.billOutCafeTab(db, C, t.id, { method: "member_account" }); expect(o.total).toBeCloseTo(570 * (1 - plan.cafeDiscountPct / 100), 1); expect(Fn.memberBalance(db, m.id)).toBeCloseTo(bal + o.total, 1);
+    const sus = db.members.find((x) => x.status === "suspended")!; expect(err(() => Pos.openCafeTab(db, C, { memberId: sus.id })).code).toBe("eligibility");
+    const t2 = Pos.openCafeTab(db, C, { label: "Empty" }); expect(err(() => Pos.billOutCafeTab(db, C, t2.id, { method: "cash" })).code).toBe("validation"); Pos.cancelCafeTab(db, C, t2.id);
+  });
+});

@@ -8,6 +8,7 @@ import * as Pos from "@/lib/services/pos";
 import { fmt12, fmtShort, fmtTs } from "@/lib/time";
 import { peso } from "@/lib/format";
 import type { PosOrder } from "@/lib/types";
+import { CafeTabs } from "@/components/cafe-tabs";
 
 const CATS: { id: string; label: string }[] = [{ id: "beverage", label: "Beverages" }, { id: "coffee", label: "Coffee" }, { id: "meal", label: "Meals" }, { id: "snack", label: "Snacks" }, { id: "refreshment", label: "Course refreshments" }];
 
@@ -19,7 +20,7 @@ export function Receipt({ o, onClose }: { o: PosOrder; onClose: () => void }) {
 }
 
 export default function PosPage() {
-  const { db, act, can } = useStore(); const today = db.meta.now.slice(0, 10); const [tab, setTab] = useState<"pos" | "orders" | "report">("pos"); const [cat, setCat] = useState("coffee"); const [cart, setCart] = useState<Record<string, number>>({});
+  const { db, act, can } = useStore(); const today = db.meta.now.slice(0, 10); const [tab, setTab] = useState<"tabs" | "pos" | "orders" | "report">("tabs"); const [cat, setCat] = useState("coffee"); const [cart, setCart] = useState<Record<string, number>>({});
   const [member, setMember] = useState<Person | null>(null); const [method, setMethod] = useState<Pos.PayMethod>("cash"); const [manual, setManual] = useState(0); const [tender, setTender] = useState(0); const [cust, setCust] = useState(""); const [receipt, setReceipt] = useState<PosOrder | null>(null); const [voidId, setVoidId] = useState<string | null>(null);
   const items = db.inventory.filter((i) => i.price != null && i.category === cat); const lines = Object.entries(cart).filter(([, q]) => q > 0).map(([itemId, qty]) => ({ itemId, qty }));
   const mem = member?.memberId ? db.members.find((m) => m.id === member.memberId) : undefined; const t = Pos.posTotals(db, lines, manual, mem?.status === "active" ? mem.id : undefined);
@@ -31,8 +32,9 @@ export default function PosPage() {
     <>
       <PageHeader icon="Coffee" title="Café / POS" sub="Demonstration POS — simulated payments only; receipts are previews, not BIR-compliant invoices" />
       <Notice tone="warn" className="mb-4">Billing integration boundary: orders create a <b>Charge</b> + <b>Payment</b> in the shared ledger. A certified POS / e-invoicing provider can later consume these records through the Finance service interface (see docs).</Notice>
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4"><Kpi label="Orders today" value={live.length} icon="ReceiptText" /><Kpi label="Net sales" value={peso(live.reduce((a, o) => a + o.total, 0))} icon="Banknote" /><Kpi label="On member accounts" value={peso(live.filter((o) => o.method === "member_account").reduce((a, o) => a + o.total, 0))} icon="BookUser" /><Kpi label="Cashier shift" value={shift ? "Open" : "Closed"} icon="Landmark" tone={shift ? "neutral" : "red"} sub={shift ? shift.cashier : "Open a shift in Finance"} /></div>
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: "pos", label: "Point of sale" }, { id: "orders", label: "Orders & history", count: orders.length }, { id: "report", label: "Daily POS report" }]} />
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5"><Kpi label="Orders today" value={live.length} icon="ReceiptText" /><Kpi label="Net sales" value={peso(live.reduce((a, o) => a + o.total, 0))} icon="Banknote" /><Kpi label="On member accounts" value={peso(live.filter((o) => o.method === "member_account").reduce((a, o) => a + o.total, 0))} icon="BookUser" /><Kpi label="Open tabs (unbilled)" value={db.cafeTabs.filter((t) => t.status === "open").length} icon="Hourglass" sub={peso(db.cafeTabs.filter((t) => t.status === "open").reduce((a, t) => a + Pos.cafeTabTotals(db, t).total, 0))} /><Kpi label="Cashier shift" value={shift ? "Open" : "Closed"} icon="Landmark" tone={shift ? "neutral" : "red"} sub={shift ? shift.cashier : "Open a shift in Finance"} /></div>
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: "tabs", label: "Running tabs", count: db.cafeTabs.filter((t) => t.status === "open").length }, { id: "pos", label: "Quick sale" }, { id: "orders", label: "Orders & history", count: orders.length }, { id: "report", label: "Daily POS report" }]} />
+      {tab === "tabs" && <CafeTabs onBilled={(o) => setReceipt(o)} />}
       {tab === "pos" && <div className="grid gap-4 lg:grid-cols-5"><div className="lg:col-span-3"><div className="mb-3 flex flex-wrap gap-2">{CATS.map((c) => <button key={c.id} onClick={() => setCat(c.id)} className={cn("rounded-full px-4 py-1.5 text-sm font-medium", cat === c.id ? "bg-forest text-white" : "bg-white text-charcoal-600 ring-1 ring-charcoal-200 hover:bg-ivory-100")}>{c.label}</button>)}</div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{items.map((i) => <button key={i.id} disabled={i.qty === 0} onClick={() => add(i.id, 1)} className={cn("rounded-xl border border-charcoal-100 bg-white p-3 text-left shadow-card transition hover:border-gold disabled:opacity-40", (cart[i.id] ?? 0) > 0 && "border-forest ring-1 ring-forest")}><p className="text-sm font-medium leading-snug">{i.name}</p><p className="mt-1 font-display text-lg text-forest">{peso(i.price!)}</p><p className={cn("text-xs", i.qty <= i.reorder ? "font-semibold text-[#9C3326]" : "text-charcoal-400")}>{i.qty} in stock{i.qty <= i.reorder ? " · low" : ""}</p></button>)}</div></div>
         <Card className="h-fit lg:col-span-2"><CardHeader title="Current order" action={lines.length > 0 && <Button size="sm" variant="ghost" onClick={() => setCart({})}><Trash2 className="h-4 w-4" />Clear</Button>} />

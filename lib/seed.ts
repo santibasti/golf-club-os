@@ -18,7 +18,7 @@ import * as Mt from "./services/maintenance";
 import * as Ev from "./services/events";
 import { nextId } from "./services/core";
 
-export const SEED_VERSION = 5;
+export const SEED_VERSION = 6;
 export const DEMO_NOW_TIME = "09:00";
 
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -73,7 +73,7 @@ export function createSeedDB(todayOverride?: string): DB {
     meta: { version: SEED_VERSION, clubId: settings.club.tenantId, seededAt: today, today, now: mkTs(addDays(today, -30), "05:00"), seed: 20260507 }, seq: {}, settings,
     rolePerms: JSON.parse(JSON.stringify(DEFAULT_ROLE_PERMS)), holes: [], closures: [], customers: [], plans: JSON.parse(JSON.stringify(PLANS)), members: [], sponsorships: [], bookings: [], rounds: [], waitlist: [], messages: [],
     caddies: [], caddieAttendance: [], rotationEvents: [], caddieAssignments: [], caddieSettlements: [], carts: [], cartDispatches: [], staff: [], workOrders: [], recurring: [], assets: [], inventory: [], movements: [],
-    posOrders: [], rangeSales: [], rangeTabs: [], charges: [], payments: [], refunds: [], shifts: [], events: [], announcements: [], feedback: [], audit: [], maintBudget: {}, historicalMonthly: [],
+    posOrders: [], rangeSales: [], rangeTabs: [], cafeTabs: [], charges: [], payments: [], refunds: [], shifts: [], events: [], announcements: [], feedback: [], audit: [], maintBudget: {}, historicalMonthly: [],
   };
 
   /* ---------------------------- reference data ---------------------------- */
@@ -403,6 +403,12 @@ export function createSeedDB(todayOverride?: string): DB {
   if (tm) { setNow(today, "08:22"); tryDo(() => Pos.addRangeLine(db, POSU, tm.id, "BKT-M", 1)); setNow(today, "08:48"); tryDo(() => Pos.addRangeLine(db, POSU, tm.id, "BKT-S", 2)); }
   const tp = tryDo(() => Pos.openRangeTab(db, POSU, { name: db.customers[100].name, bay: freeBay() }));
   if (tp) { setNow(today, "08:35"); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "BKT-L", 1)); tryDo(() => Pos.addRangeLine(db, POSU, tp.id, "CLUB", 1)); }
+  // running café tabs (unbilled)
+  setNow(today, "08:25"); const ct1 = tryDo(() => Pos.openCafeTab(db, POSU, { memberId: activeMembers[20].id }));
+  const sku = (k: string) => db.inventory.find((x) => x.sku === k)!.id;
+  if (ct1) { tryDo(() => Pos.addCafeLine(db, POSU, ct1.id, sku("COF-03"), 2)); setNow(today, "08:50"); tryDo(() => Pos.addCafeLine(db, POSU, ct1.id, sku("SNK-02"), 1)); ct1.lines[0].fulfil = "served"; }
+  setNow(today, "08:40"); const ct2 = tryDo(() => Pos.openCafeTab(db, POSU, { label: "Table 4 — Reyes group" }));
+  if (ct2) { tryDo(() => Pos.addCafeLine(db, POSU, ct2.id, sku("MEL-03"), 2)); tryDo(() => Pos.addCafeLine(db, POSU, ct2.id, sku("BEV-04"), 4)); ct2.lines[0].fulfil = "preparing"; }
   // pending cashier items: one older unpaid public charge + one pending event
   setNow(today, DEMO_NOW_TIME);
   db.meta.today = today; db.meta.now = mkTs(today, DEMO_NOW_TIME);
