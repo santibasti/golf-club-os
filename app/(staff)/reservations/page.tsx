@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChoiceGroup, PaymentChoice, HolesChoice, StarRating, BayPicker, CartPicker, DiscountChips } from "@/components/choices";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, AlertTriangle, Ban, Lock, MessageSquare } from "lucide-react";
+import { Footprints, ChevronLeft, ChevronRight, Plus, AlertTriangle, Ban, Lock, MessageSquare } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Badge, Button, Card, CardHeader, ConfirmButton, DataTable, Empty, Field, Input, KV, Kpi, Modal, Notice, PageHeader, PromptDialog, Select, StatusBadge, Tabs, Textarea, cn } from "@/components/ui";
 import { BookingFormDialog, ClosureDialog, RescheduleDialog } from "@/components/booking-dialogs";
@@ -66,7 +66,7 @@ export default function ReservationsPage() {
 
   return (
     <>
-      <PageHeader icon="CalendarDays" title="Reservations / Tee Sheet" sub="Prevents double-booking · honours closures · rates follow member status" actions={canBook && <Button onClick={() => setForm({})}><Plus className="h-4 w-4" />New reservation</Button>} />
+      <PageHeader icon="CalendarDays" title="Reservations / Tee Sheet" sub="Prevents double-booking · honours closures · rates follow member status" actions={canBook && <><Link href="/walk-in"><Button variant="outline"><Footprints className="h-4 w-4" />Walk-in wizard</Button></Link><Button onClick={() => setForm({})}><Plus className="h-4 w-4" />New reservation</Button></>} />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5">
         <Kpi label="Reservations" value={live.length} sub={`${live.reduce((a, b) => a + b.players.length, 0)} players`} icon="CalendarCheck" />
         <Kpi label="Utilization" value={pct(u.pct)} sub={`${u.used}/${u.slots} slots`} icon="Gauge" />

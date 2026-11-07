@@ -8,6 +8,7 @@ import { NAV, ROLES, roleLabel } from "@/lib/permissions";
 import type { RoleId } from "@/lib/types";
 import { Avatar, Button, Denied, Icon, Modal, Skeleton, cn } from "./ui";
 import { computeAlerts } from "@/lib/services/alerts";
+import { useNowTaskCount } from "./tasks";
 import { fmt12, fmtDate, timeOf, dateOf, fmtShort } from "@/lib/time";
 
 function useOutside(ref: React.RefObject<HTMLElement | null>, cb: () => void) {
@@ -16,14 +17,14 @@ function useOutside(ref: React.RefObject<HTMLElement | null>, cb: () => void) {
 
 const GROUPS: { label: string; hrefs: string[] }[] = [
   { label: "Overview", hrefs: ["/", "/golf-operations"] },
-  { label: "Play & course", hrefs: ["/reservations", "/check-in", "/caddies", "/carts", "/course-map", "/maintenance"] },
+  { label: "Play & course", hrefs: ["/walk-in", "/reservations", "/check-in", "/caddies", "/carts", "/course-map", "/maintenance"] },
   { label: "Revenue centres", hrefs: ["/membership", "/range", "/pos", "/events"] },
   { label: "Back office", hrefs: ["/finance", "/inventory", "/reports", "/admin"] },
 ];
 
 function Sidebar({ open, onClose, collapsed, onToggle }: { open: boolean; onClose: () => void; collapsed: boolean; onToggle: () => void }) {
   const { can, db, session } = useStore(); const path = usePathname(); const role = ROLES.find((r) => r.id === session.role)!;
-  const items = NAV.filter((n) => can(n.perm)); const slim = collapsed && !open;
+  const items = NAV.filter((n) => can(n.perm)); const slim = collapsed && !open; const nowTasks = useNowTaskCount();
   return (
     <>
       {open && <div className="fixed inset-0 z-30 animate-fade bg-forest-950/55 backdrop-blur-sm lg:hidden" onClick={onClose} />}
@@ -40,7 +41,7 @@ function Sidebar({ open, onClose, collapsed, onToggle }: { open: boolean; onClos
               {its.map((n) => { const active = n.href === "/" ? path === "/" : path.startsWith(n.href); return (
                 <Link key={n.href} href={n.href} onClick={onClose} title={slim ? n.label : undefined} aria-current={active ? "page" : undefined} className={cn("group relative mb-0.5 flex items-center gap-3 rounded-xl py-2.5 text-[13.5px] transition-all", slim ? "justify-center px-0" : "px-3", active ? "bg-white/[.09] font-medium text-white" : "text-ivory/70 hover:bg-white/[.05] hover:text-white")}>
                   {active && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gold" />}
-                  <Icon name={n.icon} className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-gold-300" : "text-ivory/60 group-hover:text-gold-300")} />{!slim && <span className="truncate">{n.label}</span>}
+                  <Icon name={n.icon} className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-gold-300" : "text-ivory/60 group-hover:text-gold-300")} />{!slim && <span className="truncate">{n.label}</span>}{n.href === "/" && nowTasks > 0 && (slim ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-[#B4473A] ring-2 ring-forest-900" /> : <span title="Tasks to do now" className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[#B4473A] px-1.5 text-[10.5px] font-bold text-white">{nowTasks}</span>)}
                 </Link>); })}
             </div>); })}
           <div className="border-t border-white/10 pt-3"><Link href="/portal" onClick={onClose} title={slim ? "Golfer / Member Portal" : undefined} className={cn("flex items-center gap-3 rounded-xl py-2.5 text-[13.5px] text-ivory/70 hover:bg-white/[.05] hover:text-white", slim ? "justify-center" : "px-3")}><Smartphone className="h-[18px] w-[18px] shrink-0 text-ivory/60" />{!slim && "Golfer / Member Portal"}</Link></div>
@@ -64,7 +65,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
     const s = q.trim().toLowerCase(); const out: Hit[] = [];
     const pages = NAV.filter((n) => can(n.perm) && (!s || n.label.toLowerCase().includes(s)));
     const actions: Hit[] = [
-      { kind: "Action", label: "New tee-time reservation", href: "/reservations?new=1", icon: "CalendarPlus" }, { kind: "Action", label: "Open check-in & starter", href: "/check-in", icon: "ClipboardCheck" },
+      { kind: "Action", label: "Walk-in wizard (book → check in → ready)", href: "/walk-in", icon: "Footprints" }, { kind: "Action", label: "New tee-time reservation", href: "/reservations?new=1", icon: "CalendarPlus" }, { kind: "Action", label: "Open check-in & starter", href: "/check-in", icon: "ClipboardCheck" },
       { kind: "Action", label: "Start a driving-range tab", href: "/range", icon: "Target" }, { kind: "Action", label: "Open a café tab", href: "/pos", icon: "Coffee" }, { kind: "Action", label: "Record a payment", href: "/finance", icon: "Wallet" },
     ].filter((a) => (!s || a.label.toLowerCase().includes(s)) && NAV.some((n) => a.href.startsWith(n.href) && n.href !== "/" && can(n.perm)));
     if (!s) { out.push(...actions.slice(0, 4)); out.push(...pages.map((n) => ({ kind: "Go to", label: n.label, href: n.href, icon: n.icon }))); return out; }

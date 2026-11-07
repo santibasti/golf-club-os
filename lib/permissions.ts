@@ -82,6 +82,7 @@ export const NAV: NavItem[] = [
   { href: "/golf-operations", label: "Golf Operations", icon: "Flag", perm: "view.golfops" },
   { href: "/course-map", label: "Course Map & Carts", icon: "Map", perm: "view.golfops" },
   { href: "/membership", label: "Membership", icon: "IdCard", perm: "view.membership" },
+  { href: "/walk-in", label: "Walk-in Wizard", icon: "Footprints", perm: "booking.create" },
   { href: "/reservations", label: "Reservations / Tee Sheet", icon: "CalendarDays", perm: "view.reservations" },
   { href: "/check-in", label: "Check-In & Starter", icon: "ClipboardCheck", perm: "view.checkin" },
   { href: "/caddies", label: "Caddie Management", icon: "Users", perm: "view.caddies" },

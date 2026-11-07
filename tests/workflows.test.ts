@@ -332,3 +332,44 @@ describe("Cart map — crew and animation", () => {
     const done = Trk.allTracks(db, 600).find((t) => t.cartId === t0.cartId)!; expect(done.zone).toBe("clubhouse"); // finished carts roll back to the clubhouse
   });
 });
+
+describe("Today tasks (role-aware, derived, one-click)", () => {
+  it("shows each role its own work, offers actions only when permitted, and tasks vanish once done", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`;
+    const starter = Tk.tasksForRole(db, "starter"); expect(starter.length).toBeGreaterThan(0); expect(starter.every((t) => t.module === "starter")).toBe(true);
+    const caddie = Tk.tasksForRole(db, "caddie_master"); expect(caddie.every((t) => t.module === "caddie")).toBe(true); expect(Tk.tasksForRole(db, "member")).toEqual([]);
+    const gm = Tk.tasksForRole(db, "gm"); expect(new Set(gm.map((t) => t.module)).size).toBeGreaterThan(2);
+    // permission gating: reservations officer sees caddie-less flights? no — caddie tasks never appear; cashier sees no starter actions
+    expect(Tk.tasksForRole(db, "cashier").every((t) => t.module === "cashier")).toBe(true);
+    const assign = caddie.find((t) => t.action?.kind === "assign_caddie"); expect(assign).toBeTruthy(); const before = Cd.bookingAssignments(db, assign!.action!.id!).length;
+    Tk.runTask(db, CM, assign!.action!); expect(Cd.bookingAssignments(db, assign!.action!.id!).length).toBe(before + 1);
+    expect(err(() => Tk.runTask(db, RES, { kind: "assign_caddie", label: "x", id: assign!.action!.id })).code).toBe("forbidden"); // services still enforce permissions
+    const rel = starter.find((t) => t.action?.kind === "release_flight"); if (rel) { Tk.runTask(db, ST, rel.action!); expect(Tk.tasksForRole(db, "starter").some((t) => t.id === rel.id)).toBe(false); }
+    const sh = db.shifts.find((s) => s.status === "open")!; sh.status = "closed"; expect(Tk.tasksForRole(db, "cashier").some((t) => t.action?.kind === "open_shift")).toBe(true); Tk.runTask(db, CASH, { kind: "open_shift", label: "x" }); expect(Fn.openShift(db)).toBeTruthy();
+    const conf = Bk.createBooking(db, as("reservations"), { date: addD(TODAY, 1), time: openSlot(db, addD(TODAY, 1)).time, holes: 18, channel: "online", players: publicPlayers(db, 1), contactName: "Pending Online", contactPhone: "1" }); expect(conf.status).toBe("booked");
+  });
+});
+
+describe("Walk-in wizard (one guided transaction)", () => {
+  const slot = (db: DB) => Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "10:30")!;
+  it("books, checks in, assigns caddies & carts, collects payment, dispatches and marks ready in one go", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const players = publicPlayers(db, 4); const s = slot(db);
+    const r = Wk.walkIn(db, GM, { time: s.time, holes: 18, players, contactName: players[0].name, wantCaddies: true, wantCarts: true, payMethod: "cash" });
+    expect(r.steps.map((x) => x.status)).toEqual(["done", "done", "done", "done", "done", "done", "done"]); expect(r.ready).toBe(true); expect(r.booking.status).toBe("ready"); expect(r.due).toBe(0); expect(r.collected).toBeGreaterThan(4 * 3000);
+    expect(Cd.bookingAssignments(db, r.booking.id).length).toBe(2); expect(Ct.cartsFor(db, r.booking.id).every((c) => c.status === "dispatched")).toBe(true);
+  });
+  it("is honest when a role can't do every step, and 'pay later' leaves the flight not ready", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const players = publicPlayers(db, 2); const s = slot(db);
+    const r = Wk.walkIn(db, RES, { time: s.time, holes: 18, players, contactName: players[0].name, wantCaddies: true, wantCarts: true, payMethod: "cash" });
+    expect(r.booking.status).toBe("arrived"); expect(r.ready).toBe(false); expect(r.steps.find((x) => x.key === "caddies")!.status).toBe("skipped"); expect(r.steps.find((x) => x.key === "payment")!.status).toBe("skipped");
+    const p2 = publicPlayers(db, 2); const s2 = Bk.buildSlots(db, TODAY).find((x) => !x.blocked && !x.past && x.bookings.length === 0 && x.time > s.time)!;
+    const later = Wk.walkIn(db, GM, { time: s2.time, holes: 9, players: p2, contactName: p2[0].name, wantCaddies: true, wantCarts: true, payMethod: null }); expect(later.ready).toBe(false); expect(later.due).toBeGreaterThan(0); expect(later.steps.find((x) => x.key === "ready")!.status).toBe("failed");
+  });
+  it("rolls everything back (via the store contract) when a required rule fails; nothing is half-created", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const taken = db.bookings.find((b) => b.date === TODAY && b.status === "confirmed" && b.time >= "09:40")!; const n = db.bookings.length; const players = publicPlayers(db, 2);
+    expect(err(() => Wk.walkIn(db, GM, { time: taken.time, holes: 18, players, contactName: "X", wantCaddies: true, wantCarts: true, payMethod: "cash" })).code).toBe("conflict"); expect(db.bookings.length).toBe(n);
+    expect(err(() => Wk.walkIn(db, as("caddie_master"), { time: "11:00", holes: 18, players, contactName: "X", wantCaddies: true, wantCarts: true, payMethod: null })).code).toBe("forbidden");
+  });
+});
+import * as Tk from "@/lib/services/tasks";
+import * as Wk from "@/lib/services/walkin";

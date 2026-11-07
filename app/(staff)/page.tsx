@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo } from "react";
-import { ArrowRight, CalendarPlus, ClipboardCheck, Coffee, Users, Wallet, Wrench, AlertTriangle, Flag } from "lucide-react";
+import { ArrowRight, Footprints, CalendarPlus, ClipboardCheck, Coffee, Users, Wallet, Wrench, AlertTriangle, Flag } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Badge, Button, Card, CardHeader, DemoBadge, Empty, Kpi, PageHeader, StatusBadge, DataTable } from "@/components/ui";
 import { Chart } from "@/components/charts";
@@ -11,6 +11,7 @@ import { addDays, dateRange, fmt12, fmtDate, fmtMonth, fmtShort } from "@/lib/ti
 import { peso, pct } from "@/lib/format";
 import { ROLES } from "@/lib/permissions";
 import { paceOf } from "@/lib/services/flight";
+import { TaskList } from "@/components/tasks";
 import { memberBalance } from "@/lib/services/finance";
 import type { Booking, RoleId } from "@/lib/types";
 
@@ -26,6 +27,7 @@ function QuickActions({ items }: { items: { href: string; label: string; icon: R
 }
 const QA_ICON = "h-4 w-4 text-gold-300";
 const QA = [
+  { href: "/walk-in", label: "Walk-in", icon: <Footprints className={QA_ICON} /> },
   { href: "/reservations?new=1", label: "New tee time", icon: <CalendarPlus className={QA_ICON} /> },
   { href: "/check-in", label: "Check-in", icon: <ClipboardCheck className={QA_ICON} /> },
   { href: "/caddies", label: "Caddie rotation", icon: <Users className={QA_ICON} /> },
@@ -96,6 +98,7 @@ function ExecDashboard() {
   return (
     <>
       <Hero today={today} fin={d.fin} booked={d.booked} started={d.started} util={d.u} alerts={d.alerts} />
+      <TaskList limit={6} className="mb-8" />
       <h2 className="mb-3 font-sans text-[11px] font-semibold uppercase tracking-[.16em] text-charcoal-500">Operations at a glance</h2>
       <section aria-label="Key indicators" className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 3xl:grid-cols-8">
         <Kpi icon="Users" label="Member vs public" value={`${d.mix.member + d.mix.guest} / ${d.mix.public}`} sub={`${d.mix.member} members · ${d.mix.guest} guests · ${d.mix.public} public`} />
@@ -180,12 +183,13 @@ function RoleWorkspace() {
     <>
       <PageHeader icon="LayoutDashboard" title={`${role.label} workspace`} sub={<span className="flex flex-wrap items-center gap-2">{role.user} · {role.blurb} <DemoBadge /></span>} actions={<Link href={role.home === "/" ? "/golf-operations" : role.home}><Button size="sm">Open main module <ArrowRight className="h-4 w-4" /></Button></Link>} />
       <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">{mine.map((k) => <Kpi key={k.label} {...k} />)}</section>
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="lg:col-span-3"><FlightsToday date={today} limit={10} /></div>
+      <div className="mb-4 grid gap-4 lg:grid-cols-5">
+        <TaskList className="lg:col-span-3" />
         <Card className="lg:col-span-2"><CardHeader title="Needs attention" sub="Operational alerts" />
           {mineAlerts.length === 0 ? <Empty icon="CheckCircle2" title="All clear" /> : mineAlerts.map((a) => <Link key={a.id} href={a.href} className="flex items-start gap-3 border-b border-charcoal-100/70 px-5 py-2.5 last:border-0 hover:bg-ivory-50"><Flag className="mt-0.5 h-4 w-4 text-gold-600" /><span><span className="block text-sm font-medium">{a.title}</span><span className="block text-xs text-charcoal-500">{a.detail}</span></span></Link>)}
         </Card>
       </div>
+      <FlightsToday date={today} limit={10} />
     </>
   );
 }
