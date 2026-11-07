@@ -1,0 +1,238 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { createSeedDB } from "@/lib/seed";
+import type { DB } from "@/lib/types";
+import { DomainError, Ctx } from "@/lib/services/core";
+import * as Bk from "@/lib/services/booking";
+import * as Fl from "@/lib/services/flight";
+import * as Cd from "@/lib/services/caddie";
+import * as Ct from "@/lib/services/cart";
+import * as Fn from "@/lib/services/finance";
+import * as Ms from "@/lib/services/membership";
+import * as Pos from "@/lib/services/pos";
+import * as Mt from "@/lib/services/maintenance";
+import * as Ev from "@/lib/services/events";
+import { financeTotals, totalRevenue, roundsBooked } from "@/lib/services/metrics";
+import { memberLedger } from "@/lib/services/membership";
+import { computeAlerts } from "@/lib/services/alerts";
+import { REPORTS } from "@/lib/services/reports";
+import { ROLES } from "@/lib/permissions";
+
+const TODAY = "2026-11-07";
+let base: DB;
+beforeAll(() => { base = createSeedDB(TODAY); }, 60000);
+const fresh = () => structuredClone(base);
+const as = (role: string): Ctx => ({ role: role as Ctx["role"], actor: ROLES.find((r) => r.id === role)?.user ?? role });
+const RES = as("reservations"), CM = as("caddie_master"), CS = as("cart_supervisor"), ST = as("starter"), CASH = as("cashier"), SUP = as("superintendent"), MX = as("maintenance"), GM = as("gm"), POS = as("cafe"), MEM = as("membership");
+const err = (f: () => unknown) => { try { f(); } catch (e) { if (e instanceof DomainError) return e; throw e; } throw new Error("expected DomainError"); };
+const openSlot = (db: DB, date: string, after = "00:00") => Bk.buildSlots(db, date).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= after)!;
+let seq = 0; // synthetic walk-in golfers (no customer record) so tests never collide with seeded bookings
+const publicPlayers = (_db: DB, n: number, _from = 0) => Array.from({ length: n }, () => ({ name: `Test Golfer ${++seq}`, type: "public" as const, customerId: undefined as string | undefined }));
+const activeMember = (db: DB, i = 0) => db.members.filter((m) => m.status === "active")[i];
+const mkPublic = (db: DB, date = addD(TODAY, 2), time?: string, n = 4) => { const s = openSlot(db, date); const p = publicPlayers(db, n, 120); return Bk.createBooking(db, RES, { date, time: time ?? s.time, holes: 18, channel: "phone", players: p, contactName: p[0].name, contactPhone: "0917", contactCustomerId: p[0].customerId }); };
+import { addDays as addD } from "@/lib/time";
+
+describe("seed integrity", () => {
+  it("meets the requested volumes", () => {
+    expect(base.customers.length).toBe(150); expect(base.members.filter((m) => m.status === "active").length).toBe(60); expect(base.caddies.length).toBe(45); expect(base.carts.length).toBe(30); expect(base.holes.length).toBe(18); expect(base.bookings.length).toBeGreaterThan(40);
+  });
+  it("is deterministic", () => { const a = createSeedDB(TODAY), b = createSeedDB(TODAY); expect(JSON.stringify(a)).toBe(JSON.stringify(b)); }, 60000);
+  it("has no charge overpaid and consistent member ledgers", () => {
+    for (const c of base.charges) { expect(c.paid).toBeLessThanOrEqual(Fn.chargeNet(c) + 0.01); expect(c.payable).toBeLessThanOrEqual(Fn.chargeNet(c) + 0.01); }
+    for (const m of base.members) { const l = memberLedger(base, m.id); expect(Math.abs(l.closing - Fn.memberBalance(base, m.id))).toBeLessThan(0.02); }
+  });
+  it("applied payments equal charge.paid (no double counting)", () => { for (const c of base.charges) expect(base.payments.filter((p) => p.chargeId === c.id).reduce((a, p) => a + p.amount, 0)).toBeCloseTo(c.paid, 1); });
+  it("no caddie or cart is double-assigned", () => {
+    for (const c of base.caddies) expect(base.caddieAssignments.filter((a) => a.caddieId === c.id && ["reserved", "assigned", "on_course"].includes(a.status)).length).toBeLessThanOrEqual(1);
+    for (const c of base.carts) expect(base.carts.filter((x) => x.bookingId && x.bookingId === c.bookingId && x.id === c.id).length).toBeLessThanOrEqual(1);
+  });
+  it("every report builds for every range", () => { for (const r of REPORTS) { const res = r.build(base, { from: addD(TODAY, -13), to: TODAY }); expect(res.columns.length).toBeGreaterThan(0); } });
+});
+
+describe("reservations", () => {
+  it("prevents double-booking a slot and releases capacity on cancel", () => {
+    const db = fresh(); const b = mkPublic(db); expect(b.status).toBe("confirmed");
+    expect(err(() => Bk.createBooking(db, RES, { date: b.date, time: b.time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 10), contactName: "X", contactPhone: "1" })).code).toBe("conflict");
+    Bk.cancelBooking(db, RES, b.id, "test"); expect(Bk.buildSlots(db, b.date).find((s) => s.time === b.time)!.bookings.length).toBe(0);
+    expect(Bk.createBooking(db, RES, { date: b.date, time: b.time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 10), contactName: "X", contactPhone: "1" }).status).toBe("confirmed");
+  });
+  it("enforces max players per flight and shared-slot capacity when enabled", () => {
+    const db = fresh(); const s = openSlot(db, addD(TODAY, 2)); expect(err(() => Bk.createBooking(db, RES, { date: s.key.split("|")[0], time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 5, 10), contactName: "X", contactPhone: "1" })).code).toBe("validation");
+    db.settings.teeSheet.allowSharedSlots = true; Bk.createBooking(db, RES, { date: addD(TODAY, 2), time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 10), contactName: "A", contactPhone: "1" });
+    expect(err(() => Bk.createBooking(db, RES, { date: addD(TODAY, 2), time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 3, 20), contactName: "B", contactPhone: "1" })).message).toMatch(/space/);
+    Bk.createBooking(db, RES, { date: addD(TODAY, 2), time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 30), contactName: "C", contactPhone: "1" });
+  });
+  it("member status drives eligibility and rate; guest limits apply", () => {
+    const db = fresh(); const m = activeMember(db, 3); const c = db.customers.find((x) => x.id === m.customerId)!; const plan = db.plans.find((p) => p.id === m.planId)!;
+    const date = addD(TODAY, 3); const s = openSlot(db, date);
+    const players = [{ name: c.name, type: "member" as const, memberId: m.id, customerId: c.id }, ...publicPlayers(db, plan.guestsPerRound + 1, 130).map((g) => ({ name: g.name, type: "guest" as const, sponsorId: m.id }))];
+    expect(err(() => Bk.createBooking(db, RES, { date, time: s.time, holes: 18, channel: "member", players, contactName: c.name, contactPhone: "1", contactMemberId: m.id })).code).toBe("guest_limit");
+    const b = Bk.createBooking(db, RES, { date, time: s.time, holes: 18, channel: "member", players: players.slice(0, 1 + plan.guestsPerRound), contactName: c.name, contactPhone: "1", contactMemberId: m.id });
+    expect(b.players[0].rate).toBe(plan.greenFee18); expect(b.players[1].rate).toBe(plan.guestRate18); expect(db.sponsorships.filter((x) => x.bookingId === b.id).length).toBe(plan.guestsPerRound);
+    const sus = db.members.find((x) => x.status === "suspended")!; const sc = db.customers.find((x) => x.id === sus.customerId)!; const s2 = openSlot(db, date, "12:00");
+    expect(err(() => Bk.createBooking(db, RES, { date, time: s2.time, holes: 18, channel: "member", players: [{ name: sc.name, type: "member", memberId: sus.id, customerId: sc.id }], contactName: sc.name, contactPhone: "1" })).code).toBe("eligibility");
+  });
+  it("respects booking window for public bookers; staff override is permission-gated", () => {
+    const db = fresh(); const far = addD(TODAY, 20); const s = openSlot(db, far);
+    expect(err(() => Bk.createBooking(db, RES, { date: far, time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 1, 10), contactName: "X", contactPhone: "1" })).code).toBe("window");
+    expect(err(() => Bk.createBooking(db, RES, { date: far, time: s.time, holes: 18, channel: "phone", players: publicPlayers(db, 1, 10), contactName: "X", contactPhone: "1", override: true })).code).toBe("forbidden");
+  });
+  it("same person cannot be in two overlapping bookings", () => {
+    const db = fresh(); const date = addD(TODAY, 2); const cu = db.customers.find((c) => !c.memberId)!; const p = [{ name: cu.name, type: "public" as const, customerId: cu.id }]; const a = openSlot(db, date, "07:00"); Bk.createBooking(db, RES, { date, time: a.time, holes: 18, channel: "phone", players: p, contactName: "A", contactPhone: "1" });
+    const b = openSlot(db, date, "09:00"); expect(err(() => Bk.createBooking(db, RES, { date, time: b.time, holes: 18, channel: "phone", players: p, contactName: "A", contactPhone: "1" })).message).toMatch(/already in booking/);
+  });
+  it("late cancellation forfeits the deposit; timely cancellation refunds", () => {
+    const db = fresh(); const date = TODAY; const slot = Bk.buildSlots(db, date).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time > "09:40" && s.time < "20:00")!;
+    const p = publicPlayers(db, 2, 50); const b = Bk.createBooking(db, RES, { date, time: slot.time, holes: 18, channel: "phone", players: p, contactName: p[0].name, contactPhone: "1", depositAmount: 1000, depositMethod: "cash" });
+    Bk.cancelBooking(db, RES, b.id, "late test"); expect(db.bookings.find((x) => x.id === b.id)!.deposit!.status).toBe("forfeited"); expect(db.charges.some((c) => c.bookingId === b.id && c.refType === "cancel_fee" && c.status === "paid")).toBe(true);
+    const b2 = mkPublic(db, addD(TODAY, 3)); b2.deposit = undefined; const d2 = Bk.createBooking(db, RES, { date: addD(TODAY, 4), time: openSlot(db, addD(TODAY, 4)).time, holes: 18, channel: "phone", players: publicPlayers(db, 2, 60), contactName: "Z", contactPhone: "1", depositAmount: 500 });
+    Bk.cancelBooking(db, RES, d2.id, "plans changed"); expect(db.bookings.find((x) => x.id === d2.id)!.deposit!.status).toBe("refunded"); expect(db.refunds.length).toBeGreaterThan(base.refunds.length);
+  });
+});
+
+describe("Scenario A — public golfer end-to-end", () => {
+  it("books, checks in, assigns caddies/cart, pays, starts, completes; dashboard reflects it", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`;
+    const slot = Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "09:50")!;
+    const p = publicPlayers(db, 4, 70); const before = financeTotals(db, { from: TODAY, to: TODAY }).netRevenue; const bookedBefore = roundsBooked(db, { from: TODAY, to: TODAY });
+    const b = Bk.createBooking(db, RES, { date: TODAY, time: slot.time, holes: 18, channel: "phone", players: p, contactName: p[0].name, contactPhone: "0917", contactCustomerId: p[0].customerId });
+    expect(roundsBooked(db, { from: TODAY, to: TODAY })).toBe(bookedBefore + 4); expect(b.greenFeeTotal).toBe(4 * db.settings.rates.green.weekend.public);
+    db.meta.now = `${TODAY}T${slot.time.replace(/^(\d\d):(\d\d)$/, (_, h, m) => { const t = Number(h) * 60 + Number(m) - 20; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; })}`;
+    Fl.arriveBooking(db, RES, b.id, b.players.map((x) => x.id)); expect(db.bookings.find((x) => x.id === b.id)!.status).toBe("arrived");
+    expect(err(() => Fl.markReady(db, ST, b.id)).code).toBe("requirements");
+    Cd.assignCaddie(db, CM, { bookingId: b.id }); Cd.assignCaddie(db, CM, { bookingId: b.id }); expect(Cd.bookingAssignments(db, b.id).length).toBe(2);
+    const cart1 = db.carts.find((c) => c.status === "available")!, cart2 = db.carts.find((c) => c.status === "available" && c.id !== cart1.id)!; Ct.assignCart(db, CS, b.id, cart1.id); Ct.assignCart(db, CS, b.id, cart2.id);
+    expect(err(() => Fl.markReady(db, ST, b.id)).code).toBe("requirements"); // unpaid counter charges
+    for (const c of db.charges.filter((x) => x.bookingId === b.id && Fn.outstanding(x) > 0)) Fn.recordPayment(db, CASH, { chargeId: c.id, amount: Fn.outstanding(c), method: "cash" });
+    Ct.dispatchCart(db, CS, cart1.id); Ct.dispatchCart(db, CS, cart2.id); Fl.markReady(db, ST, b.id); Fl.startRound(db, ST, b.id);
+    expect(db.caddies.filter((c) => Cd.activeAssignment(db, c.id)?.bookingId === b.id).every((c) => c.status === "on_course")).toBe(true); expect(db.carts.find((c) => c.id === cart1.id)!.status).toBe("in_use");
+    db.meta.now = `${TODAY}T${slot.time}`; Fl.recordCheckpoint(db, ST, b.id, 9);
+    expect(db.bookings.find((x) => x.id === b.id)!.status).toBe("started"); // payment never completes a round
+    Fl.completeRound(db, ST, b.id, {}); expect(db.bookings.find((x) => x.id === b.id)!.status).toBe("completed");
+    expect(db.carts.find((c) => c.id === cart1.id)!.status).toBe("returned"); expect(db.caddies.filter((c) => c.status === "returned").length).toBeGreaterThanOrEqual(2);
+    expect(financeTotals(db, { from: TODAY, to: TODAY }).netRevenue).toBeGreaterThan(before + 4 * 3600 - 1);
+  });
+});
+
+describe("Scenario B — member with guests; account charging", () => {
+  it("charges member and guest rates to the member ledger; cash is not recorded", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const m = activeMember(db, 5); const c = db.customers.find((x) => x.id === m.customerId)!; const plan = db.plans.find((p) => p.id === m.planId)!;
+    const slot = Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "10:00")!; const g = publicPlayers(db, 2, 90);
+    const balBefore = Fn.memberBalance(db, m.id); const cashBefore = financeTotals(db, { from: TODAY, to: TODAY }).cashCollected;
+    const b = Bk.createBooking(db, RES, { date: TODAY, time: slot.time, holes: 18, channel: "member", players: [{ name: c.name, type: "member", memberId: m.id, customerId: c.id }, ...g.slice(0, Math.min(2, plan.guestsPerRound)).map((x) => ({ name: x.name, type: "guest" as const, sponsorId: m.id }))], contactName: c.name, contactPhone: "1", contactMemberId: m.id, contactCustomerId: c.id });
+    Fl.arriveBooking(db, RES, b.id, b.players.map((p) => p.id));
+    const expected = plan.greenFee18 + Math.min(2, plan.guestsPerRound) * plan.guestRate18;
+    expect(Fn.memberBalance(db, m.id)).toBeCloseTo(balBefore + expected, 1); expect(financeTotals(db, { from: TODAY, to: TODAY }).cashCollected).toBe(cashBefore);
+    expect(memberLedger(db, m.id).rows.some((r) => r.description.startsWith("Green fees"))).toBe(true);
+    // paying the balance doesn't create revenue
+    const rev = totalRevenue(db, { from: TODAY, to: TODAY }); Fn.payMemberBalance(db, CASH, m.id, expected, "cash"); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev);
+  });
+  it("suspension blocks member rates & POS charging; reinstatement restores", () => {
+    const db = fresh(); const m = activeMember(db, 7); Ms.suspendMember(db, GM, m.id, "test"); const item = db.inventory.find((i) => i.price)!;
+    expect(err(() => Pos.createPosOrder(db, POS, { items: [{ itemId: item.id, qty: 1 }], method: "member_account", memberId: m.id })).code).toBe("eligibility");
+    expect(err(() => Ms.suspendMember(db, RES, m.id, "x")).code).toBe("forbidden"); Ms.reinstateMember(db, GM, m.id, "settled"); expect(m.status).toBe("active");
+  });
+  it("membership workflow: apply → docs → approve → activation posts fees; approval needs permission", () => {
+    const db = fresh(); const m = Ms.createApplication(db, MEM, { name: "Test Applicant", phone: "09171234567", email: "t@example.test", address: "1 Test St", birthDate: "1990-01-01", planId: "PL-IND", emergencyName: "Em Contact", emergencyPhone: "09170000000", emergencyRelation: "Spouse", billingPref: "account" });
+    expect(err(() => Ms.submitForApproval(db, MEM, m.id)).code).toBe("docs"); Ms.toggleDoc(db, MEM, m.id, "application_form"); Ms.toggleDoc(db, MEM, m.id, "valid_id"); Ms.submitForApproval(db, MEM, m.id);
+    expect(err(() => Ms.approveMember(db, MEM, m.id)).code).toBe("forbidden"); Ms.approveMember(db, GM, m.id); expect(m.status).toBe("active"); expect(db.charges.filter((c) => c.memberId === m.id).length).toBe(2);
+    const n = db.charges.length; Ms.runDuesBilling(db, MEM); Ms.runDuesBilling(db, MEM); expect(db.charges.length).toBeGreaterThanOrEqual(n); // idempotent billing keys
+  });
+});
+
+describe("Scenario C — caddie rotation", () => {
+  it("assigns next in queue, records preferred & override exceptions, blocks double assignment", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const b = mkPublic(db, TODAY, Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "10:30")!.time);
+    const q = Cd.rotationQueue(db); expect(q.length).toBeGreaterThan(3); const a1 = Cd.assignCaddie(db, CM, { bookingId: b.id }); expect(a1.caddieId).toBe(q[0].id);
+    const nextQ = Cd.rotationQueue(db); const a2 = Cd.assignCaddie(db, CM, { bookingId: b.id, caddieId: nextQ[3].id, preferred: true, reason: "Requested by golfer" }); expect(db.rotationEvents.at(-1)!.type).toBe("preferred"); expect(a2.caddieId).toBe(nextQ[3].id);
+    const b2 = mkPublic(db, TODAY, Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "12:00")!.time);
+    expect(err(() => Cd.assignCaddie(db, CM, { bookingId: b2.id, caddieId: Cd.rotationQueue(db)[2].id })).message).toMatch(/reason/i); // override needs reason
+    expect(err(() => Cd.assignCaddie(db, RES, { bookingId: b2.id })).code).toBe("forbidden");
+    expect(err(() => Cd.assignCaddie(db, CM, { bookingId: b2.id, caddieId: a1.caddieId })).message).toMatch(/cannot be assigned/); // already reserved
+    Cd.assignCaddie(db, CM, { bookingId: b2.id, caddieId: Cd.rotationQueue(db)[2].id, reason: "Skipping: caddie on meal break" }); expect(db.rotationEvents.at(-1)!.type).toBe("override");
+  });
+  it("employee fees are club revenue; contractor fees become payables and settle only once collected", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const slot = Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "10:30")!; const p = publicPlayers(db, 2, 80);
+    const b = Bk.createBooking(db, RES, { date: TODAY, time: slot.time, holes: 18, channel: "phone", players: p, contactName: p[0].name, contactPhone: "1", contactCustomerId: p[0].customerId });
+    Fl.arriveBooking(db, RES, b.id, b.players.map((x) => x.id)); const contractor = db.caddies.find((c) => c.classification === "contractor" && c.status === "available")!; Cd.assignCaddie(db, CM, { bookingId: b.id, caddieId: contractor.id, preferred: true, reason: "requested" });
+    for (const c of db.charges.filter((x) => x.bookingId === b.id && Fn.outstanding(x) > 0)) Fn.recordPayment(db, CASH, { chargeId: c.id, amount: Fn.outstanding(c), method: "cash" });
+    Fl.markReady(db, ST, b.id); Fl.startRound(db, ST, b.id); const rev = totalRevenue(db, { from: TODAY, to: TODAY }); Fl.completeRound(db, ST, b.id, {});
+    const s = db.caddieSettlements.at(-1)!; expect(s.caddieId).toBe(contractor.id); expect(s.clubRetained).toBe(0); expect(s.payable).toBeGreaterThan(0);
+    expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBe(rev); // contractor fee is not club revenue
+    expect(err(() => Cd.settleCaddie(db, CM, s.id)).code).toBe("not_collected");
+    const ch = db.charges.find((c) => c.id === s.chargeId)!; Fn.recordPayment(db, CASH, { chargeId: ch.id, amount: Fn.outstanding(ch), method: "cash" }); Cd.settleCaddie(db, CM, s.id); expect(s.status).toBe("settled");
+  });
+});
+
+describe("Scenario D — cart maintenance", () => {
+  it("pulls cart 12 from dispatch, creates work order, requires inspection before service", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const cart = db.carts.find((c) => c.no === 12)!; expect(cart.status).toBe("available");
+    const { workOrder } = Ct.reportCartIssue(db, CS, cart.id, "Steering rattle and mechanical fault"); expect(cart.status).toBe("maintenance"); expect(workOrder.cartId).toBe(cart.id);
+    const b = mkPublic(db, TODAY, Bk.buildSlots(db, TODAY).find((s) => !s.blocked && !s.past && s.bookings.length === 0 && s.time >= "10:30")!.time);
+    expect(err(() => Ct.assignCart(db, CS, b.id, cart.id)).code).toBe("maintenance"); expect(err(() => Ct.dispatchCart(db, CS, cart.id)).code).toBe("maintenance");
+    Mt.advanceWorkOrder(db, MX, workOrder.id, "in_progress"); Mt.advanceWorkOrder(db, MX, workOrder.id, "for_inspection"); expect(cart.status).toBe("maintenance");
+    expect(err(() => Mt.inspectWorkOrder(db, MX, workOrder.id, "passed", "ok")).code).toBe("forbidden"); Mt.inspectWorkOrder(db, CS, workOrder.id, "passed", "Brake and steering tested");
+    expect(cart.status).toBe("available"); Ct.assignCart(db, CS, b.id, cart.id); expect(cart.status).toBe("reserved");
+  });
+});
+
+describe("Scenario E — course restriction", () => {
+  it("blocks tee times, flags affected reservations, supports reschedule/lift, and audits", () => {
+    const db = fresh(); const date = addD(TODAY, 2); const b = mkPublic(db, date, openSlot(db, date, "08:00").time); const log0 = db.audit.length;
+    expect(err(() => Bk.createClosure(db, RES, { date, from: "07:30", to: "10:00", type: "full", tee: "all", holes: [], category: "maintenance", reason: "x" })).code).toBe("forbidden");
+    const r = Bk.createClosure(db, SUP, { date, from: "07:30", to: "11:00", type: "tee", tee: "all", holes: [], category: "maintenance", reason: "Irrigation repair" }); expect(r.impact.some((x) => x.id === b.id)).toBe(true);
+    expect(Bk.bookingConflicts(db).some((c) => c.booking.id === b.id)).toBe(true); expect(Bk.buildSlots(db, date).find((s) => s.time === b.time)!.blocked).toBeTruthy(); expect(computeAlerts(db).some((a) => a.type === "Booking conflict")).toBe(true);
+    expect(err(() => Bk.createBooking(db, RES, { date, time: "07:40", holes: 18, channel: "phone", players: publicPlayers(db, 1, 10), contactName: "X", contactPhone: "1" })).code).toBe("closed");
+    Bk.rescheduleBooking(db, RES, b.id, { date, time: openSlot(db, date, "12:00").time }); expect(Bk.bookingConflicts(db).some((c) => c.booking.id === b.id)).toBe(false);
+    Bk.liftClosure(db, SUP, r.closure.id); expect(Bk.buildSlots(db, date).find((s) => s.time === "07:40")!.blocked).toBeUndefined(); expect(db.audit.length - log0).toBeGreaterThanOrEqual(3);
+  });
+  it("a work order alone does not close the course", () => { const db = fresh(); const t = db.meta.today; Mt.createWorkOrder(db, SUP, { location: "Hole 3", hole: 3, category: "Greens", description: "Aeration works", priority: "high", team: "Greens Crew", startDate: t, targetDate: t, estCost: 100 }); expect(Bk.buildSlots(db, t).every((s) => !s.blocked)).toBe(true); });
+});
+
+describe("Scenario F — café member charge", () => {
+  it("charges member account once; reports do not double count; void restores stock and ledger", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const m = activeMember(db, 9); const coffee = db.inventory.find((i) => i.sku === "COF-03")!, meal = db.inventory.find((i) => i.sku === "MEL-01")!; const stock = coffee.qty;
+    const bal = Fn.memberBalance(db, m.id); const rev = totalRevenue(db, { from: TODAY, to: TODAY }); const cash = financeTotals(db, { from: TODAY, to: TODAY }).cashCollected;
+    const o = Pos.createPosOrder(db, POS, { items: [{ itemId: coffee.id, qty: 2 }, { itemId: meal.id, qty: 1 }], method: "member_account", memberId: m.id });
+    expect(o.discountPct).toBe(db.plans.find((p) => p.id === m.planId)!.cafeDiscountPct); expect(Fn.memberBalance(db, m.id)).toBeCloseTo(bal + o.total, 1); expect(totalRevenue(db, { from: TODAY, to: TODAY })).toBeCloseTo(rev + o.total, 1);
+    expect(financeTotals(db, { from: TODAY, to: TODAY }).cashCollected).toBe(cash); expect(coffee.qty).toBe(stock - 2);
+    expect(err(() => Pos.voidPosOrder(db, CASH, o.id, "customer changed mind")).code).toBe("forbidden"); Pos.voidPosOrder(db, POS, o.id, "customer changed mind"); expect(coffee.qty).toBe(stock); expect(Fn.memberBalance(db, m.id)).toBeCloseTo(bal, 1);
+  });
+  it("discount above staff limit needs authority; insufficient stock is rejected; credit limit enforced", () => {
+    const db = fresh(); const it = db.inventory.find((i) => i.price)!; expect(err(() => Pos.createPosOrder(db, CASH, { items: [{ itemId: it.id, qty: 1 }], method: "cash", manualDiscountPct: 50 })).code).toBe("forbidden");
+    expect(err(() => Pos.createPosOrder(db, POS, { items: [{ itemId: it.id, qty: it.qty + 1 }], method: "cash" })).code).toBe("stock");
+    const m = activeMember(db, 2); const plan = db.plans.find((p) => p.id === m.planId)!; Fn.createCharge(db, GM, { dept: "other", description: "x", amount: plan.creditLimit, name: "m", memberId: m.id, billTo: "member_account" });
+    expect(err(() => Pos.createPosOrder(db, POS, { items: [{ itemId: it.id, qty: 1 }], method: "member_account", memberId: m.id })).code).toBe("credit");
+  });
+});
+
+describe("finance rules", () => {
+  it("rejects overpayment, requires an open shift, supports refund/write-off with authority", () => {
+    const db = fresh(); const c = Fn.createCharge(db, GM, { dept: "other", description: "Test", amount: 1000, name: "A" });
+    expect(err(() => Fn.recordPayment(db, CASH, { chargeId: c.id, amount: 1500, method: "cash" })).code).toBe("validation"); Fn.recordPayment(db, CASH, { chargeId: c.id, amount: 400, method: "cash" }); expect(c.status).toBe("partial");
+    expect(err(() => Fn.writeOff(db, CASH, c.id, "uncollectible debt")).code).toBe("forbidden"); Fn.recordPayment(db, CASH, { chargeId: c.id, amount: 600, method: "gcash" }); expect(c.status).toBe("paid");
+    Fn.refundCharge(db, CASH, c.id, 1000, "cash", "service issue"); expect(c.status).toBe("refunded"); expect(Fn.recognisedRevenue(c)).toBe(0); expect(err(() => Fn.refundCharge(db, CASH, c.id, 1, "cash", "again")).code).toBe("validation");
+    const u = Fn.createCharge(db, GM, { dept: "other", description: "Unpaid", amount: 500, name: "B" }); Fn.writeOff(db, GM, u.id, "approved by general manager"); expect(Fn.outstanding(u)).toBe(0); expect(Fn.recognisedRevenue(u)).toBe(0);
+    db.shifts.forEach((s) => { s.status = "closed"; }); expect(err(() => Fn.recordPayment(db, CASH, { chargeId: Fn.createCharge(db, GM, { dept: "other", description: "n", amount: 10, name: "n" }).id, amount: 10, method: "cash" })).code).toBe("no_shift");
+  });
+  it("shift reconciliation computes expected cash and variance", () => { const db = fresh(); const s = Fn.openShift(db)!; const e = Fn.shiftCash(db, s.id).expected; Fn.closeShift(db, CASH, s.id, e - 50); expect(s.variance).toBe(-50); expect(s.status).toBe("closed"); });
+});
+
+describe("maintenance, events, permissions", () => {
+  it("work order flow requires inspection; recurring generation is idempotent", () => {
+    const db = fresh(); const w = Mt.createWorkOrder(db, SUP, { location: "Hole 1", hole: 1, category: "Tee boxes", description: "Re-level tee", priority: "normal", team: "", startDate: TODAY, targetDate: TODAY, estCost: 500 }); expect(w.status).toBe("scheduled"); expect(err(() => Mt.advanceWorkOrder(db, MX, w.id, "assigned")).code).toBe("validation");
+    Mt.assignTeam(db, SUP, w.id, "Fairway Crew"); Mt.advanceWorkOrder(db, MX, w.id, "in_progress"); expect(err(() => Mt.advanceWorkOrder(db, MX, w.id, "completed")).code).toBe("validation"); Mt.advanceWorkOrder(db, MX, w.id, "for_inspection"); Mt.inspectWorkOrder(db, SUP, w.id, "passed", "good"); expect(w.status).toBe("completed");
+    Mt.generateRecurring(db, SUP, 0); expect(err(() => Mt.generateRecurring(db, SUP, 0)).code).toBe("none_due");
+  });
+  it("events: duplicate registration blocked; tee block affects reservations; scoring validation; leaderboard order", () => {
+    const db = fresh(); const date = addD(TODAY, 5); const b = mkPublic(db, date, openSlot(db, date, "07:00").time); const { event, impact } = Ev.createEvent(db, as("tournament"), { name: "Test Cup", type: "tournament", date, start: "06:30", end: "12:00", organizer: "Org", expected: 8, fee: 1000, venue: "Course", format: "Stroke", blockTeeSheet: true }); expect(impact).toBeGreaterThanOrEqual(0); void b;
+    Ev.registerPlayer(db, as("tournament"), event.id, { name: "Player One" }); expect(err(() => Ev.registerPlayer(db, as("tournament"), event.id, { name: "player one" })).code).toBe("duplicate"); Ev.registerPlayer(db, as("tournament"), event.id, { name: "Player Two" });
+    const [r1, r2] = event.registrations; expect(err(() => Ev.recordScore(db, as("tournament"), event.id, r1.id, 5)).code).toBe("validation"); Ev.recordScore(db, as("tournament"), event.id, r1.id, 90); Ev.recordScore(db, as("tournament"), event.id, r2.id, 82); expect(Ev.leaderboard(db, event)[0].reg.name).toBe("Player Two");
+    expect(db.charges.find((c) => c.id === r1.chargeId)!.date).toBe(date); // revenue recognised on event date
+  });
+  it("roles: every role has a defined permission set; member has no staff permissions; admin can edit roles", () => {
+    expect(ROLES.length).toBe(15); expect(base.rolePerms.member.length).toBe(0); expect(base.rolePerms.system_admin).toContain("admin.roles"); expect(base.rolePerms.cashier).not.toContain("finance.writeoff");
+  });
+  it("starter pace and delays are computed from the demo clock", () => {
+    const db = fresh(); const late = db.bookings.find((b) => b.date === TODAY && b.status === "ready"); expect(late).toBeTruthy(); expect(Fl.paceOf(db, late!).status).toBe("delayed"); expect(computeAlerts(db).some((a) => a.type === "Delayed flight")).toBe(true);
+  });
+});

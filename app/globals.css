@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html { -webkit-text-size-adjust: 100%; }
+body { @apply bg-ivory text-charcoal font-sans antialiased; }
+h1, h2, h3, .font-display { font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif; }
+:focus-visible { outline: 2px solid #B8975A; outline-offset: 2px; }
+::selection { background: #D9C089; color: #0A2C21; }
+.scroll-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #cfd3d1; border-radius: 8px; }
+.hatch { background-image: repeating-linear-gradient(45deg, rgba(43,47,46,.06) 0 6px, transparent 6px 12px); }
+@media print { .no-print { display: none !important; } body { background: #fff; } }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+.pop { animation: pop .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
