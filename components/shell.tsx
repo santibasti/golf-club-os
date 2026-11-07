@@ -9,6 +9,8 @@ import type { RoleId } from "@/lib/types";
 import { Avatar, Button, Denied, Icon, Modal, Skeleton, cn } from "./ui";
 import { computeAlerts } from "@/lib/services/alerts";
 import { useDisplay } from "@/lib/display";
+import { CORE_NAV, SIMPLE_LABEL } from "@/lib/simple";
+import { HelpButton } from "./help";
 import { ChoiceGroup } from "./choices";
 import { useNowTaskCount } from "./tasks";
 import { fmt12, fmtDate, timeOf, dateOf, fmtShort } from "@/lib/time";
@@ -26,7 +28,8 @@ const GROUPS: { label: string; hrefs: string[] }[] = [
 
 function Sidebar({ open, onClose, collapsed, onToggle }: { open: boolean; onClose: () => void; collapsed: boolean; onToggle: () => void }) {
   const { can, db, session } = useStore(); const path = usePathname(); const role = ROLES.find((r) => r.id === session.role)!;
-  const items = NAV.filter((n) => can(n.perm)); const slim = collapsed && !open; const nowTasks = useNowTaskCount();
+  const { display } = useDisplay(); const [more, setMore] = useState(false); const core = CORE_NAV[session.role] ?? []; const simple = display.simple && core.length > 0;
+  const allItems = NAV.filter((n) => can(n.perm)); const isActive = (h: string) => (h === "/" ? path === "/" : path.startsWith(h)); const items = simple && !more ? allItems.filter((n) => core.includes(n.href) || isActive(n.href)) : allItems; const hiddenCount = allItems.length - items.length; const slim = collapsed && !open; const nowTasks = useNowTaskCount(); const label = (n: { href: string; label: string }) => (simple ? SIMPLE_LABEL[n.href] ?? n.label : n.label);
   return (
     <>
       {open && <div className="fixed inset-0 z-30 animate-fade bg-forest-950/55 backdrop-blur-sm lg:hidden" onClick={onClose} />}
@@ -41,11 +44,12 @@ function Sidebar({ open, onClose, collapsed, onToggle }: { open: boolean; onClos
             <div key={g.label} className="mb-4">
               {!slim ? <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[.16em] text-ivory/40">{g.label}</p> : <div className="mx-3 mb-2 border-t border-white/10" />}
               {its.map((n) => { const active = n.href === "/" ? path === "/" : path.startsWith(n.href); return (
-                <Link key={n.href} href={n.href} onClick={onClose} title={slim ? n.label : undefined} aria-current={active ? "page" : undefined} className={cn("group relative mb-0.5 flex items-center gap-3 rounded-xl py-2.5 text-[13.5px] transition-all", slim ? "justify-center px-0" : "px-3", active ? "bg-white/[.09] font-medium text-white" : "text-ivory/70 hover:bg-white/[.05] hover:text-white")}>
+                <Link key={n.href} href={n.href} onClick={onClose} title={slim ? label(n) : undefined} aria-current={active ? "page" : undefined} className={cn("group relative mb-0.5 flex items-center gap-3 rounded-xl py-2.5 text-[13.5px] transition-all", slim ? "justify-center px-0" : "px-3", active ? "bg-white/[.09] font-medium text-white" : "text-ivory/70 hover:bg-white/[.05] hover:text-white")}>
                   {active && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gold" />}
-                  <Icon name={n.icon} className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-gold-300" : "text-ivory/60 group-hover:text-gold-300")} />{!slim && <span className="truncate">{n.label}</span>}{n.href === "/" && nowTasks > 0 && (slim ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-[#B4473A] ring-2 ring-forest-900" /> : <span title="Tasks to do now" className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[#B4473A] px-1.5 text-[10.5px] font-bold text-white">{nowTasks}</span>)}
+                  <Icon name={n.icon} className={cn("h-[18px] w-[18px] shrink-0 transition-colors", active ? "text-gold-300" : "text-ivory/60 group-hover:text-gold-300")} />{!slim && <span className="truncate">{label(n)}</span>}{n.href === "/" && nowTasks > 0 && (slim ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-[#B4473A] ring-2 ring-forest-900" /> : <span title="Tasks to do now" className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-[#B4473A] px-1.5 text-[10.5px] font-bold text-white">{nowTasks}</span>)}
                 </Link>); })}
             </div>); })}
+          {simple && (hiddenCount > 0 || more) && !slim && <button onClick={() => setMore((m) => !m)} className="mb-3 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] text-gold-300 hover:bg-white/[.05]"><Icon name={more ? "ChevronUp" : "Ellipsis"} className="h-[18px] w-[18px]" />{more ? "Show fewer" : `More… (${hiddenCount})`}</button>}
           <div className="border-t border-white/10 pt-3"><Link href="/portal" onClick={onClose} title={slim ? "Golfer / Member Portal" : undefined} className={cn("flex items-center gap-3 rounded-xl py-2.5 text-[13.5px] text-ivory/70 hover:bg-white/[.05] hover:text-white", slim ? "justify-center" : "px-3")}><Smartphone className="h-[18px] w-[18px] shrink-0 text-ivory/60" />{!slim && "Golfer / Member Portal"}</Link></div>
         </nav>
         <div className="border-t border-white/10 p-3">
@@ -172,6 +176,8 @@ function DisplayMenu() {
           <p className="mb-3 text-sm font-semibold text-forest">Display for this device</p>
           <p className="mb-1.5 text-xs font-medium text-charcoal-600">Touch mode <span className="font-normal text-charcoal-400">— bigger buttons & rows for tablets{display.touch === "auto" ? ` (auto: ${touchActive ? "on" : "off"})` : ""}</span></p>
           <ChoiceGroup variant="segment" label="Touch mode" value={display.touch} onChange={(v) => set({ touch: v })} options={[{ value: "auto", label: "Auto", icon: "Wand2" }, { value: "on", label: "On", icon: "Hand" }, { value: "off", label: "Off", icon: "MousePointer2" }]} />
+          <p className="mb-1.5 mt-4 text-xs font-medium text-charcoal-600">Menu <span className="font-normal text-charcoal-400">— simple shows only what your role uses</span></p>
+          <ChoiceGroup variant="segment" label="Menu style" value={display.simple ? "simple" : "full"} onChange={(v) => set({ simple: v === "simple" })} options={[{ value: "simple", label: "Simple", icon: "Sparkles" }, { value: "full", label: "Full", icon: "LayoutList" }]} />
           <p className="mb-1.5 mt-4 text-xs font-medium text-charcoal-600">Text size</p>
           <ChoiceGroup variant="segment" label="Text size" value={display.size} onChange={(v) => set({ size: v })} options={[{ value: "normal", label: "Normal", icon: "Type" }, { value: "large", label: "Large", icon: "ALargeSmall" }, { value: "xl", label: "Extra large", icon: "Baseline" }]} />
           <p className="mb-1.5 mt-4 text-xs font-medium text-charcoal-600">Outdoor high-contrast <span className="font-normal text-charcoal-400">— for bright sunlight</span></p>
@@ -194,7 +200,7 @@ function ResetButton() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { can, session, db, persistError } = useStore(); const path = usePathname(); const [menu, setMenu] = useState(false); const [cmd, setCmd] = useState(false); const [collapsed, setCollapsed] = useState(false);
+  const { can, session, db, persistError } = useStore(); const path = usePathname(); const { display: hdrDisplay } = useDisplay(); const hdrSimple = hdrDisplay.simple && (CORE_NAV[session.role]?.length ?? 0) > 0; const [menu, setMenu] = useState(false); const [cmd, setCmd] = useState(false); const [collapsed, setCollapsed] = useState(false);
   useEffect(() => { try { setCollapsed(localStorage.getItem("gcos.sidebar") === "1"); } catch { /* ignore */ } }, []);
   const toggle = useCallback(() => setCollapsed((c) => { try { localStorage.setItem("gcos.sidebar", c ? "0" : "1"); } catch { /* ignore */ } return !c; }), []);
   useEffect(() => setMenu(false), [path]);
@@ -208,11 +214,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="no-print sticky top-0 z-20 border-b border-line/80 bg-ivory/85 backdrop-blur-xl">
           <div className="flex items-center gap-2.5 px-3 py-2.5 sm:px-6">
             <button className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-white shadow-sm lg:hidden" onClick={() => setMenu(true)} aria-label="Open menu"><Menu className="h-5 w-5" /></button>
-            <div className="hidden min-w-0 shrink-0 lg:block"><p className="text-[10.5px] font-semibold uppercase tracking-[.14em] text-charcoal-400">{db.settings.club.shortName}</p><p className="truncate text-sm font-semibold text-forest">{nav?.label ?? "Golf Club OS"}</p></div>
+            <div className="hidden min-w-0 shrink-0 lg:block"><p className="text-[10.5px] font-semibold uppercase tracking-[.14em] text-charcoal-400">{db.settings.club.shortName}</p><p className="truncate text-sm font-semibold text-forest">{nav ? (hdrSimple ? SIMPLE_LABEL[nav.href] ?? nav.label : nav.label) : "Golf Club OS"}</p></div>
             <button onClick={() => setCmd(true)} className="group ml-0 flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-xl border border-line bg-white px-3.5 text-left shadow-sm transition-colors hover:border-charcoal-300 lg:ml-6 lg:max-w-md" aria-label="Search or jump to…">
               <Search className="h-4 w-4 shrink-0 text-charcoal-400" /><span className="truncate text-sm text-charcoal-400">Search or jump to…</span><kbd className="ml-auto hidden shrink-0 rounded-md border border-line bg-ivory-100 px-1.5 py-0.5 text-[10px] font-medium text-charcoal-500 sm:block">⌘K</kbd>
             </button>
-            <div className="ml-auto flex shrink-0 items-center gap-2"><ClockPill /><Notifications /><DisplayMenu /><ResetButton /><RoleSwitcher /></div>
+            <div className="ml-auto flex shrink-0 items-center gap-2"><ClockPill /><Notifications /><HelpButton /><DisplayMenu /><ResetButton /><RoleSwitcher /></div>
           </div>
           <div className="flex items-center justify-between gap-3 border-t border-gold-300/30 bg-gradient-to-r from-gold-50 via-gold-50/60 to-transparent px-4 py-1 text-[11px] text-gold-700 sm:px-6"><span className="flex items-center gap-1.5 truncate"><FlaskConical className="h-3.5 w-3.5 shrink-0" /><b className="tracking-wider">DEMO DATA</b><span className="truncate text-gold-700/80">fictional club & golfers · {roleLabel(session.role)} view</span></span>{persistError && <span className="shrink-0 rounded bg-[#B4473A] px-2 py-0.5 text-white">{persistError}</span>}</div>
         </header>

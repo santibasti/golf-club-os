@@ -1,11 +1,15 @@
 "use client";
 import React, { useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import * as Icons from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { X, ArrowUpRight } from "lucide-react";
 import { initials } from "@/lib/format";
+import { usePathname } from "next/navigation";
+import { useDisplay } from "@/lib/display";
+import { SIMPLE_LABEL } from "@/lib/simple";
 
 export const cn = (...a: Parameters<typeof clsx>) => twMerge(clsx(...a));
 export const CHART = { forest: "#0F3D2E", emerald: "#1F7A5A", gold: "#B8975A", sage: "#8DB8A2", charcoal: "#4A504E", sand: "#D9C089", clay: "#B5654A", sky: "#5B8DB0" };
@@ -62,6 +66,7 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
 
 /* ------------------------------ page header ------------------------------ */
 export function PageHeader({ title, sub, actions, icon }: { title: string; sub?: React.ReactNode; actions?: React.ReactNode; icon?: string }) {
+  const path = usePathname(); const { display } = useDisplay(); if (display.simple && SIMPLE_LABEL[path] && path !== "/") title = SIMPLE_LABEL[path]; // same name as the menu
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-line/70 pb-5">
       <div className="flex min-w-0 items-center gap-3.5">
@@ -113,7 +118,8 @@ export function Modal({ open, onClose, title, children, footer, size = "md" }: {
   useEffect(() => { if (!open) return; const h = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", h); document.body.style.overflow = "hidden"; return () => { window.removeEventListener("keydown", h); document.body.style.overflow = ""; }; }, [open, onClose]);
   if (!open) return null;
   const w = { sm: "sm:max-w-md", md: "sm:max-w-xl", lg: "sm:max-w-3xl", xl: "sm:max-w-5xl" }[size];
-  return (
+  // Rendered at <body> so no ancestor (e.g. the blurred sticky header) can trap or clip the overlay.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex animate-fade items-end justify-center bg-forest-950/55 backdrop-blur-sm sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" className={cn("flex max-h-[94vh] w-full animate-sheet flex-col overflow-hidden rounded-t-3xl border border-line bg-white shadow-pop sm:max-h-[90vh] sm:rounded-2xl", w)}>
         <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-charcoal-200 sm:hidden" />
@@ -122,7 +128,7 @@ export function Modal({ open, onClose, title, children, footer, size = "md" }: {
         {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line bg-ivory-50 px-5 py-3">{footer}</div>}
       </div>
     </div>
-  );
+  , document.body);
 }
 
 /* ---------------------------------- tabs ---------------------------------- */

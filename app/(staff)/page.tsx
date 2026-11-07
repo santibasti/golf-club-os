@@ -12,6 +12,7 @@ import { peso, pct } from "@/lib/format";
 import { ROLES } from "@/lib/permissions";
 import { paceOf } from "@/lib/services/flight";
 import { TaskList } from "@/components/tasks";
+import { HomeTiles } from "@/components/home-tiles";
 import { memberBalance } from "@/lib/services/finance";
 import type { Booking, RoleId } from "@/lib/types";
 
@@ -182,7 +183,7 @@ function RoleWorkspace() {
   return (
     <>
       <PageHeader icon="LayoutDashboard" title={`${role.label} workspace`} sub={<span className="flex flex-wrap items-center gap-2">{role.user} · {role.blurb} <DemoBadge /></span>} actions={<Link href={role.home === "/" ? "/golf-operations" : role.home}><Button size="sm">Open main module <ArrowRight className="h-4 w-4" /></Button></Link>} />
-      <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">{mine.map((k) => <Kpi key={k.label} {...k} />)}</section>
+      <HomeTiles />
       <div className="mb-4 grid gap-4 lg:grid-cols-5">
         <TaskList className="lg:col-span-3" />
         <Card className="lg:col-span-2"><CardHeader title="Needs attention" sub="Operational alerts" />

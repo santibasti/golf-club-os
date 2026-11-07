@@ -7,7 +7,7 @@ Interactive operations platform demo for a Philippine public golf course with me
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 42 workflow tests (vitest)
+npm test           # 45 workflow tests (vitest)
 npm run build && npm start   # production build
 ```
 No API keys, accounts or environment variables are needed. **Reset Demo Data** (top bar ↺ or Administration → Demo & production) restores the seeded state. The demo uses a **controllable clock** (top bar `+10m / +1h`, starts at 9:00 AM today) so tee-time situations (delays, arrivals) are reproducible.
@@ -27,6 +27,7 @@ Start as **General Manager** (can do everything) or switch roles as noted.
 * **H – Course map (simulated GPS):** *Course Map & Carts* → carts glide along the holes (Play/Pause, Slow/Normal/Fast; **Apply to demo clock** makes it count); hover or click a cart to see the golfers and caddie aboard, hole, pace, battery; at 10:00 the Hole 14 restriction turns carts on it red and raises alerts.
 * **I – Today's tasks & walk-in wizard:** switch role (Starter, Caddie Master, Cart Supervisor, Cashier…) — each landing page opens with *Today's tasks* with one-click buttons (Release, Assign next caddie, Dispatch cart, Confirm…), and the Dashboard item shows a red count. *Walk-in Wizard* books → checks in → assigns caddies & carts → collects payment → dispatches → marks ready in one guided flow, and reports each step honestly (a role without caddie/cart/finance rights gets those steps marked "skipped").
 * **J – Tablet & touch mode:** top-bar **Display** button (tablet icon) → Touch mode (Auto detects tablets) · Text size · Outdoor high-contrast. Open **Field Console** as Starter / Caddie Master / Cart Supervisor for big-button boards (release flights, tap hole checkpoints, assign caddies, cart tiles). Add to Home Screen is supported (manifest + icons); *Keep screen on* and *Fullscreen* buttons are in the console.
+* **K – Simple mode (default):** each role's menu shows only the few pages it uses (plain names, "More…" for the rest); big-button home tiles with live counts; "?" Help button with 3–5 plain steps per page; blocked actions show a one-tap fix button (e.g. "Open cashier shift"); success messages offer the next step. Switch with Display ▸ Menu ▸ Full.
 * **F – Café member charge:** *Café / POS* → add coffee + meal → choose a member → **Charge to member account** → complete → *Membership → Ledger* and *Finance* show it once (no double counting); void as Café Manager restores stock/ledger.
 
 ## Assumptions (all configurable in Administration)

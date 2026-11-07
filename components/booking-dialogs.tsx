@@ -51,7 +51,7 @@ export function BookingFormDialog({ open, onClose, initial, edit, onSaved }: { o
     const contactMemberId = contact?.memberId && db.members.find((m) => m.id === contact.memberId)?.status === "active" ? contact.memberId : undefined;
     const res = edit
       ? act((d, c) => { Bk.editBooking(d, c, edit.id, { players: clean, holes, notes, contactName: cName, contactPhone: cPhone, noCaddie }); return d.bookings.find((b) => b.id === edit.id)!; }, "Reservation updated")
-      : act((d, c) => Bk.createBooking(d, c, { date, time, tee, holes, channel, players: clean, contactName: cName, contactPhone: cPhone, contactCustomerId: contact?.customerId, contactMemberId, notes, noCaddie, depositAmount: deposit > 0 ? deposit : undefined, depositMethod: depMethod, override }), (b) => `Reservation ${b.ref} saved — simulated SMS confirmation logged`);
+      : act((d, c) => Bk.createBooking(d, c, { date, time, tee, holes, channel, players: clean, contactName: cName, contactPhone: cPhone, contactCustomerId: contact?.customerId, contactMemberId, notes, noCaddie, depositAmount: deposit > 0 ? deposit : undefined, depositMethod: depMethod, override }), (b) => `Reservation ${b.ref} saved — simulated SMS confirmation logged`, undefined, (b) => (b.date === db.meta.now.slice(0, 10) ? { label: "Check in when they arrive", href: `/check-in?booking=${b.id}` } : { label: "View the tee sheet", href: `/reservations?date=${b.date}` }));
     if (!res.ok) return setErr(res.error);
     onSaved?.(res.value); onClose();
   };

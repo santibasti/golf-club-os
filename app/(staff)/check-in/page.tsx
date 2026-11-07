@@ -40,7 +40,7 @@ function CheckInDialog({ id, onClose }: { id: string; onClose: () => void }) {
         {pre && can("booking.edit") && <Button variant="outline" onClick={() => setEdit(true)}>Modify flight list</Button>}
         {!pre && <Button variant="outline" onClick={() => setRec(true)}><Printer className="h-4 w-4" />Digital check-in record</Button>}
         {b.status === "booked" && <span className="text-sm text-[#8C3025]">Confirm the reservation first (Reservations).</span>}
-        {b.status === "confirmed" && <Button disabled={!can("checkin.manage") || sel.length === 0} onClick={() => { const r = act((d, c) => Fl.arriveBooking(d, c, b.id, sel), (r) => `Checked in — flight #${r.flightNo}; green fees posted to charges`); if (!r.ok) setErr(r.error); }}>Confirm arrival ({sel.length})</Button>}
+        {b.status === "confirmed" && <Button disabled={!can("checkin.manage") || sel.length === 0} onClick={() => { const r = act((d, c) => Fl.arriveBooking(d, c, b.id, sel), (r) => `Checked in — flight #${r.flightNo}; green fees posted to charges`, undefined, () => ({ label: "Next: assign caddies & carts", href: "/field" })); if (!r.ok) setErr(r.error); }}>Confirm arrival ({sel.length})</Button>}
       </>}>
       <Timeline b={b} />
       {err && <Notice tone="error" className="mt-3"><AlertTriangle className="h-4 w-4 shrink-0" />{err}</Notice>}

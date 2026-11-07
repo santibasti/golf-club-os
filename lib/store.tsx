@@ -9,19 +9,21 @@ import type { DB, Permission, RoleId } from "./types";
 import { createSeedDB, SEED_VERSION } from "./seed";
 import { Ctx, DomainError, audit } from "./services/core";
 import { ROLES, can as canRole } from "./permissions";
+import { fixFor } from "./simple";
 import { addMinTs } from "./time";
 
 const SESSION_KEY = "gcos.session.v1";
 export interface Session { role: RoleId; portalCustomerId?: string }
 export type ActResult<T> = { ok: true; value: T } | { ok: false; error: string };
-interface Toast { id: number; kind: "success" | "error" | "info"; text: string }
+export interface ToastAction { label: string; href: string }
+interface Toast { id: number; kind: "success" | "error" | "info"; text: string; action?: ToastAction }
 
 interface StoreCtx {
   db: DB; ready: boolean; session: Session; ctx: Ctx; persistError: string | null;
-  act: <T>(fn: (db: DB, ctx: Ctx) => T, successMsg?: string | ((v: T) => string), ctxOverride?: Ctx) => ActResult<T>;
+  act: <T>(fn: (db: DB, ctx: Ctx) => T, successMsg?: string | ((v: T) => string), ctxOverride?: Ctx, next?: ToastAction | ((v: T) => ToastAction | undefined)) => ActResult<T>;
   setRole: (r: RoleId) => void; setPortalCustomer: (id: string) => void;
   can: (perm: Permission) => boolean; resetDemo: () => void; advanceClock: (minutes: number) => void;
-  toast: (text: string, kind?: Toast["kind"]) => void; toasts: Toast[]; dismissToast: (id: number) => void;
+  toast: (text: string, kind?: Toast["kind"], action?: ToastAction) => void; toasts: Toast[]; dismissToast: (id: number) => void;
 }
 const Ctx_ = createContext<StoreCtx | null>(null);
 export const useStore = () => { const c = useContext(Ctx_); if (!c) throw new Error("StoreProvider missing"); return c; };
@@ -56,23 +58,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     timer.current = setTimeout(() => { idbSet(d).then(() => setPersistError(null)).catch(() => setPersistError("Browser storage is unavailable (private window or blocked) — changes will be lost on refresh.")); }, 400);
   }, []);
 
-  const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
-    const id = tid.current++; setToasts((t) => [...t.slice(-2), { id, kind, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 6500 : 3200);
+  const toast = useCallback((text: string, kind: Toast["kind"] = "info", action?: ToastAction) => {
+    const id = tid.current++; setToasts((t) => [...t.slice(-2), { id, kind, text, action }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 8000 : action ? 7000 : 3200);
   }, []);
 
   const ctx: Ctx = useMemo(() => { const r = ROLES.find((x) => x.id === session.role)!; return { role: session.role, actor: r.user }; }, [session.role]);
 
-  const act = useCallback(<T,>(fn: (db: DB, ctx: Ctx) => T, successMsg?: string | ((v: T) => string), ctxOverride?: Ctx): ActResult<T> => {
+  const act = useCallback(<T,>(fn: (db: DB, ctx: Ctx) => T, successMsg?: string | ((v: T) => string), ctxOverride?: Ctx, next?: ToastAction | ((v: T) => ToastAction | undefined)): ActResult<T> => {
     const cur = dbRef.current; if (!cur) return { ok: false, error: "Data not loaded yet." };
     const draft: DB = structuredClone(cur);
     try {
       const value = fn(draft, ctxOverride ?? ctx);
       dbRef.current = draft; setDb(draft); persist(draft);
-      if (successMsg) toast(typeof successMsg === "function" ? successMsg(value) : successMsg, "success");
+      if (successMsg) toast(typeof successMsg === "function" ? successMsg(value) : successMsg, "success", typeof next === "function" ? next(value) : next);
       return { ok: true, value };
     } catch (e) {
-      if (e instanceof DomainError) { toast(e.message, "error"); return { ok: false, error: e.message }; }
+      if (e instanceof DomainError) { toast(e.message, "error", fixFor(e.code)); return { ok: false, error: e.message }; }
       console.error(e); const m = "Unexpected error — nothing was saved. " + (e instanceof Error ? e.message : ""); toast(m, "error"); return { ok: false, error: m };
     }
   }, [ctx, persist, toast]);

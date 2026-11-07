@@ -381,3 +381,15 @@ describe("Range bay board", () => {
     Pos.assignTabBay(db, C, t.id, free); expect(t.bay).toBe(free); expect(err(() => Pos.assignTabBay(db, C, t.id, free)).message).toMatch(/already on bay/); Pos.addRangeLine(db, C, t.id, "SES-30", 1); expect(Pos.bayOccupancy(db)[free].tabId).toBe(t.id);
   });
 });
+
+describe("Simple mode (menus, tiles, help, one-tap fixes)", () => {
+  it("every role has a valid core menu; tiles exist for working roles; help exists for every page", () => {
+    for (const r of ROLES) { const core = Sm.CORE_NAV[r.id]; if (r.id === "member") { expect(core).toEqual([]); continue; } expect(core.length).toBeGreaterThan(0); expect(core.length).toBeLessThanOrEqual(6); const nav = NAVC.filter((n) => base.rolePerms[r.id].includes(n.perm)); expect(core.some((h) => h === "/" || nav.some((n) => n.href === h))).toBe(true); for (const h of core.filter((x) => x !== "/")) expect(nav.some((n) => n.href === h)).toBe(true); /* core items are pages the role may open */ }
+    for (const n of NAVC) { expect(Sm.SIMPLE_LABEL[n.href]).toBeTruthy(); expect(Sm.helpFor(n.href).steps.length).toBeGreaterThan(1); }
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; for (const role of ["reservations", "starter", "caddie_master", "cart_supervisor", "cashier", "cafe", "membership", "superintendent", "tournament", "golf_ops"] as const) { const t = Sm.tilesFor(db, role); expect(t.length).toBeGreaterThanOrEqual(3); expect(t.every((x) => x.href.startsWith("/"))).toBe(true); }
+    expect(Sm.tilesFor(db, "member")).toEqual([]);
+  });
+  it("turns blockers into one-tap fixes", () => { expect(Sm.fixFor("no_shift")!.href).toContain("shift"); expect(Sm.fixFor("requirements")!.href).toContain("starter"); expect(Sm.fixFor("stock")).toBeTruthy(); expect(Sm.fixFor("validation")).toBeUndefined(); });
+});
+import * as Sm from "@/lib/simple";
+import { NAV as NAVC } from "@/lib/permissions";

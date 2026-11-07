@@ -3,8 +3,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type TouchPref = "auto" | "on" | "off"; export type SizePref = "normal" | "large" | "xl";
-export interface Display { touch: TouchPref; size: SizePref; contrast: boolean }
-const KEY = "gcos.display.v1"; const DEFAULT: Display = { touch: "auto", size: "normal", contrast: false };
+export interface Display { touch: TouchPref; size: SizePref; contrast: boolean; simple: boolean }
+const KEY = "gcos.display.v1"; const DEFAULT: Display = { touch: "auto", size: "normal", contrast: false, simple: true };
 interface Ctx { display: Display; set: (p: Partial<Display>) => void; touchActive: boolean }
 const C = createContext<Ctx>({ display: DEFAULT, set: () => undefined, touchActive: false });
 export const useDisplay = () => useContext(C);
