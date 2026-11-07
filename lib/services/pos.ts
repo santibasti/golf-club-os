@@ -268,3 +268,10 @@ export function billOutCombined(db: DB, ctx: Ctx, rangeTabId: string, i: { metho
   if (c) { c.status = "billed"; c.billedAt = db.meta.now; c.method = i.method; }
   audit(db, ctx, "visit.bill", "range_tab", r.id, `${group} ${r.no}${c ? " + " + c.no : ""} billed ₱${v.grand} via ${i.method}`); return { sale, order, grand: v.grand };
 }
+
+/** Put a bay-less open range tab onto a free bay (e.g. before adding a practice session). */
+export function assignTabBay(db: DB, ctx: Ctx, tabId: string, bay: number) {
+  needPerm(db, ctx, "range.sell"); const t = req(db.rangeTabs.find((x) => x.id === tabId), "Tab not found."); if (t.status !== "open") fail("This tab is already billed out or cancelled.");
+  if (t.bay) fail(`This tab is already on bay ${t.bay}.`); if (!Number.isInteger(bay) || bay < 1 || bay > RANGE_BAYS) fail("Choose a valid bay.", "validation");
+  const o = bayOccupancy(db)[bay]; if (o) fail(`Bay ${bay} is occupied by ${o.name}.`, "conflict"); t.bay = bay; audit(db, ctx, "range.tab.bay", "range_tab", t.id, `${t.no} → bay ${bay}`);
+}

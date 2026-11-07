@@ -373,3 +373,11 @@ describe("Walk-in wizard (one guided transaction)", () => {
 });
 import * as Tk from "@/lib/services/tasks";
 import * as Wk from "@/lib/services/walkin";
+
+describe("Range bay board", () => {
+  it("moves a bay-less tab to a free bay, blocks occupied bays, and a bay session then works", () => {
+    const db = fresh(); db.meta.now = `${TODAY}T09:00`; const C = as("cafe"); const t = Pos.openRangeTab(db, C, { name: "No Bay Yet" }); expect(err(() => Pos.addRangeLine(db, C, t.id, "SES-30", 1)).code).toBe("validation");
+    const occ = Object.keys(Pos.bayOccupancy(db)).map(Number)[0]; expect(err(() => Pos.assignTabBay(db, C, t.id, occ)).code).toBe("conflict"); const free = Array.from({ length: 20 }, (_, i) => i + 1).find((b) => !Pos.bayOccupancy(db)[b])!;
+    Pos.assignTabBay(db, C, t.id, free); expect(t.bay).toBe(free); expect(err(() => Pos.assignTabBay(db, C, t.id, free)).message).toMatch(/already on bay/); Pos.addRangeLine(db, C, t.id, "SES-30", 1); expect(Pos.bayOccupancy(db)[free].tabId).toBe(t.id);
+  });
+});
