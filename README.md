@@ -1,5 +1,5 @@
 # GOLF CLUB OS — *One Platform. Every Department. Complete Control.*
-Interactive operations platform demo for a Philippine public golf course with membership (fictional club **Sierra Verde Golf & Country Club**, fictional data). Next.js (App Router) · React · TypeScript · Tailwind · Recharts · Lucide.
+Interactive operations platform demo for a Philippine public golf course with membership (fictional club **OpsPilot Golf & Country Club**, fictional data). Next.js (App Router) · React · TypeScript · Tailwind · Recharts · Lucide.
 
 > ⚠ **DEMO ONLY.** Data is fictional and lives in *your browser's IndexedDB** — not a production database, not multi-user, not secure. The role switcher is not authentication. No payments, SMS, email or tax invoicing are connected; receipts are previews, not BIR-compliant. See `docs/PRODUCTION_READINESS.md`.
 

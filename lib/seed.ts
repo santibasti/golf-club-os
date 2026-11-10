@@ -18,7 +18,7 @@ import * as Mt from "./services/maintenance";
 import * as Ev from "./services/events";
 import { nextId } from "./services/core";
 
-export const SEED_VERSION = 7;
+export const SEED_VERSION = 8;
 export const DEMO_NOW_TIME = "09:00";
 
 function mulberry32(a: number) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
@@ -30,7 +30,7 @@ const TOWNS = ["Silang, Cavite", "Tagaytay City", "Dasmariñas, Cavite", "Biñan
 
 export function defaultSettings(): Settings {
   return {
-    club: { tenantId: "club_demo_001", name: "Sierra Verde Golf & Country Club (FICTIONAL)", shortName: "Sierra Verde", address: "Km 58 Aguinaldo Highway, Silang, Cavite — fictional address", phone: "(046) 555-0100", email: "frontdesk@sierraverde.example", timezone: "Asia/Manila", currency: "PHP" },
+    club: { tenantId: "club_demo_001", name: "OpsPilot Golf & Country Club (FICTIONAL)", shortName: "OpsPilot", address: "Km 58 Aguinaldo Highway, Silang, Cavite — fictional address", phone: "(046) 555-0100", email: "frontdesk@opspilot.example", timezone: "Asia/Manila", currency: "PHP" },
     teeSheet: { firstTee: "06:00", lastTee: "15:30", interval: 10, maxPlayers: 4, startingTees: ["1"], allowSharedSlots: false, advanceDaysPublic: 7, advanceDaysMember: 14, minNoticeMinutes: 30, cancelHours: 24, forfeitDepositOnLateCancel: true, depositPerPlayer: 500, depositRequiredForPublic: false, noShowStrikeLimit: 2,
       holidays: [{ date: "2026-11-30", name: "Bonifacio Day" }, { date: "2026-12-08", name: "Immaculate Conception" }, { date: "2026-12-24", name: "Christmas Eve" }, { date: "2026-12-25", name: "Christmas Day" }, { date: "2026-12-30", name: "Rizal Day" }, { date: "2026-12-31", name: "New Year's Eve" }, { date: "2027-01-01", name: "New Year's Day" }] },
     rates: { green: { weekday: { public: 2800, member: 1200, guest: 2200 }, weekend: { public: 3600, member: 1200, guest: 2200 }, holiday: { public: 4200, member: 1200, guest: 2200 } }, ninePct: 60, cart18: 1200, cart9: 700, playersPerCart: 2,
@@ -337,7 +337,7 @@ export function createSeedDB(todayOverride?: string): DB {
     }
     // events & membership workflow items
     pastEvents.forEach((pe) => { if (date === addDays(today, -pe.off) && !isToday) {
-      setNow(date, "05:45"); const { event } = Ev.createEvent(db, TC, { name: pe.name, type: pe.type, date, start: "07:00", end: "13:30", organizer: pe.type === "corporate" ? "Meridian Bank (fictional)" : "Sierra Verde Golf Committee", expected: pe.n + 4, fee: pe.fee, venue: "18-hole course + clubhouse", format: pe.fmt, blockTeeSheet: false });
+      setNow(date, "05:45"); const { event } = Ev.createEvent(db, TC, { name: pe.name, type: pe.type, date, start: "07:00", end: "13:30", organizer: pe.type === "corporate" ? "Meridian Bank (fictional)" : "OpsPilot Golf Committee", expected: pe.n + 4, fee: pe.fee, venue: "18-hole course + clubhouse", format: pe.fmt, blockTeeSheet: false });
       const pool = shuffle(db.customers).slice(0, pe.n); setNow(date, "06:30");
       pool.forEach((c) => tryDo(() => Ev.registerPlayer(db, TC, event.id, { name: c.name, customerId: c.id, memberId: c.memberId && db.members.find((m) => m.id === c.memberId)?.status === "active" ? c.memberId : undefined, payMethod: rng() < 0.85 ? payMix() : undefined })));
       Ev.assignFlights(db, TC, event.id); Ev.addCatering(db, TC, event.id, "Boxed lunch", pe.n, pe.n * 280); Ev.confirmCatering(db, TC, event.id, event.catering[0].id);
@@ -369,9 +369,9 @@ export function createSeedDB(todayOverride?: string): DB {
   setNow(addDays(today, -5), "06:00"); const hc = tryDo(() => Bk.createClosure(db, SUP, { date: addDays(today, -5), from: "06:00", to: "09:00", type: "full", tee: "all", holes: [], category: "weather", reason: "Lightning warning — morning suspension" })); setNow(addDays(today, -5), "09:05"); if (hc) Bk.liftClosure(db, SUP, hc.closure.id);
 
   setNow(today, "08:30");
-  const upcoming = [{ name: "Sierra Verde Founders' Cup", type: "tournament" as const, off: 9, fee: 3500, n: 34, exp: 52, fmt: "Gross stroke play (demo scoring)", block: true }, { name: "Corporate Golf Day — Meridian Bank", type: "corporate" as const, off: 16, fee: 3200, n: 18, exp: 40, fmt: "Scramble — 4-person teams", block: true }, { name: "Charity Scramble for Scholars", type: "charity" as const, off: 23, fee: 2800, n: 9, exp: 60, fmt: "Scramble", block: true }, { name: "Members' Night Dinner", type: "social" as const, off: 12, fee: 1500, n: 21, exp: 80, fmt: "Dinner at the clubhouse", block: false }];
+  const upcoming = [{ name: "OpsPilot Founders' Cup", type: "tournament" as const, off: 9, fee: 3500, n: 34, exp: 52, fmt: "Gross stroke play (demo scoring)", block: true }, { name: "Corporate Golf Day — Meridian Bank", type: "corporate" as const, off: 16, fee: 3200, n: 18, exp: 40, fmt: "Scramble — 4-person teams", block: true }, { name: "Charity Scramble for Scholars", type: "charity" as const, off: 23, fee: 2800, n: 9, exp: 60, fmt: "Scramble", block: true }, { name: "Members' Night Dinner", type: "social" as const, off: 12, fee: 1500, n: 21, exp: 80, fmt: "Dinner at the clubhouse", block: false }];
   for (const u of upcoming) {
-    const d = addDays(today, u.off); const { event } = Ev.createEvent(db, TC, { name: u.name, type: u.type, date: d, start: u.type === "social" ? "18:00" : "06:30", end: u.type === "social" ? "22:00" : "12:30", organizer: u.type === "corporate" ? "Meridian Bank (fictional)" : "Sierra Verde Golf Committee", expected: u.exp, fee: u.fee, venue: u.type === "social" ? "Clubhouse ballroom" : "18-hole course", format: u.fmt, blockTeeSheet: u.block });
+    const d = addDays(today, u.off); const { event } = Ev.createEvent(db, TC, { name: u.name, type: u.type, date: d, start: u.type === "social" ? "18:00" : "06:30", end: u.type === "social" ? "22:00" : "12:30", organizer: u.type === "corporate" ? "Meridian Bank (fictional)" : "OpsPilot Golf Committee", expected: u.exp, fee: u.fee, venue: u.type === "social" ? "Clubhouse ballroom" : "18-hole course", format: u.fmt, blockTeeSheet: u.block });
     shuffle(db.customers).slice(0, u.n).forEach((c) => tryDo(() => Ev.registerPlayer(db, TC, event.id, { name: c.name, customerId: c.id, payMethod: rng() < 0.55 ? payMix() : undefined })));
     if (u.type === "tournament") Ev.assignFlights(db, TC, event.id);
     event.resources.push({ id: nextId(db, "resource", "RS-", 4), text: "Starter table & scoreboard", done: true }, { id: nextId(db, "resource", "RS-", 4), text: `${Math.ceil(u.n / 2)} golf carts blocked`, done: false });
