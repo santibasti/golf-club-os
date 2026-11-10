@@ -46,5 +46,8 @@ vercel --prod
 ```
 or push this folder to its own GitHub repo and import it in Vercel (framework: Next.js, no env vars needed; `vercel.json` included).
 
+## Troubleshooting
+* **Stuck on "Preparing demonstration data…"** — in development, Next.js blocks scripts when you open the app from another address (e.g. a tablet at `http://192.168.x.x:3000`). `next.config.mjs` already allows local-network addresses (192.168.x.x, 10.x.x.x, 172.16–31.x.x); restart `npm run dev` after updating. For any other address: `ALLOWED_DEV_ORIGINS=my.host npm run dev`. For tablets, `npm run build && npm start` avoids dev-mode checks entirely. The loader also offers *Reload* / *Clear saved data & retry* after 6 seconds.
+
 ## Structure
 `app/(staff)/*` module pages · `app/portal` golfer portal · `components/` UI kit, shell, dialogs · `lib/services/*` business rules · `lib/seed.ts` deterministic seed (drives the real services) · `lib/store.tsx` shared state/persistence · `tests/` · `docs/`.

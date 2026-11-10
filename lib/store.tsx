@@ -35,10 +35,13 @@ async function idbGet<T>(): Promise<T | undefined> { const db = await idbOpen();
 async function idbSet(v: unknown): Promise<void> { const db = await idbOpen(); return new Promise((res, rej) => { const t = db.transaction(IDB_STORE, "readwrite"); t.objectStore(IDB_STORE).put(v, IDB_KEY); t.oncomplete = () => { db.close(); res(); }; t.onerror = () => { db.close(); rej(t.error); }; t.onabort = () => { db.close(); rej(t.error); }; }); }
 /** Old builds kept a full copy per data version in localStorage — remove them to free the quota. */
 function purgeLegacy() { try { for (const k of Object.keys(localStorage)) if (k.startsWith("gcos.db.")) localStorage.removeItem(k); } catch { /* ignore */ } }
+/** Never wait forever: some browsers (private windows, blocked storage) leave IndexedDB requests pending. */
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> => new Promise((res, rej) => { const t = setTimeout(() => rej(new Error("timeout")), ms); p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); }); });
 async function loadDB(): Promise<DB> {
-  try { const d = await idbGet<DB>(); if (d?.meta?.version === SEED_VERSION) { purgeLegacy(); return d; } } catch { /* IndexedDB unavailable → reseed in memory */ }
+  try { const d = await withTimeout(idbGet<DB>(), 2500); if (d?.meta?.version === SEED_VERSION) { purgeLegacy(); return d; } } catch { /* IndexedDB unavailable or slow → start from the seed in memory */ }
   purgeLegacy(); return createSeedDB();
 }
+export async function clearSavedData() { try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ } purgeLegacy(); try { const db = await withTimeout(idbOpen(), 1500); db.close(); await withTimeout(new Promise<void>((res) => { const r = indexedDB.deleteDatabase(IDB_NAME); r.onsuccess = r.onerror = r.onblocked = () => res(); }), 1500); } catch { /* ignore */ } }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<DB | null>(null);
@@ -48,7 +51,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const dbRef = useRef<DB | null>(null); const timer = useRef<ReturnType<typeof setTimeout> | null>(null); const tid = useRef(1);
 
   useEffect(() => {
-    let alive = true; loadDB().then((d) => { if (!alive) return; dbRef.current = d; setDb(d); idbSet(d).catch(() => undefined); });
+    let alive = true; loadDB().then((d) => { if (!alive) return; dbRef.current = d; setDb(d); idbSet(d).catch(() => undefined); }).catch(() => { if (!alive) return; const d = createSeedDB(); dbRef.current = d; setDb(d); });
     try { const s = localStorage.getItem(SESSION_KEY); if (s) setSession(JSON.parse(s)); } catch { /* ignore */ }
     return () => { alive = false; };
   }, []);
@@ -90,6 +93,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   const value = useMemo<StoreCtx | null>(() => db ? { db, ready: true, session, ctx, persistError, act, setRole, setPortalCustomer, can, resetDemo, advanceClock, toast, toasts, dismissToast } : null, [db, session, ctx, persistError, act, setRole, setPortalCustomer, can, resetDemo, advanceClock, toast, toasts, dismissToast]);
-  if (!value) return <div className="grid min-h-screen place-items-center bg-ivory text-forest"><div className="text-center"><span className="mx-auto mb-5 grid h-14 w-14 animate-pulse place-items-center rounded-2xl bg-gradient-to-br from-forest-700 to-forest-900 text-gold-300 shadow-lift"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21V3l9 4-9 4" /><circle cx="8" cy="21" r="1.2" fill="currentColor" /></svg></span><p className="font-display text-xl tracking-wide">GOLF CLUB OS</p><p className="mt-1 text-sm text-charcoal-500">Preparing demonstration data…</p></div></div>;
+  if (!value) return <LoadingScreen />;
   return <Ctx_.Provider value={value}>{children}</Ctx_.Provider>;
+}
+
+function LoadingScreen() {
+  const [slow, setSlow] = useState(false); useEffect(() => { const t = setTimeout(() => setSlow(true), 6000); return () => clearTimeout(t); }, []);
+  return (
+    <div className="grid min-h-screen place-items-center bg-ivory px-4 text-forest"><div className="text-center">
+      <span className="mx-auto mb-5 grid h-14 w-14 animate-pulse place-items-center rounded-2xl bg-gradient-to-br from-forest-700 to-forest-900 text-gold-300 shadow-lift"><svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21V3l9 4-9 4" /><circle cx="8" cy="21" r="1.2" fill="currentColor" /></svg></span>
+      <p className="font-display text-xl tracking-wide">GOLF CLUB OS</p><p className="mt-1 text-sm text-charcoal-500">Preparing demonstration data…</p>
+      {slow && <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-line bg-white p-4 text-left text-sm shadow-card"><p className="font-semibold text-forest">Taking longer than expected</p><p className="mt-1 text-charcoal-600">The app may not have started in this browser. Try reloading. If you opened it from another device in development mode, restart <code className="rounded bg-ivory-100 px-1">npm run dev</code> after updating, or use <code className="rounded bg-ivory-100 px-1">npm run build &amp;&amp; npm start</code>.</p>
+        <div className="mt-3 flex gap-2"><button className="h-10 flex-1 rounded-lg bg-forest text-sm font-medium text-white" onClick={() => location.reload()}>Reload</button><button className="h-10 flex-1 rounded-lg border border-charcoal-200 bg-white text-sm font-medium" onClick={async () => { await clearSavedData(); location.reload(); }}>Clear saved data & retry</button></div></div>}
+    </div></div>
+  );
 }
