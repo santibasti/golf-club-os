@@ -2,7 +2,7 @@ import type { DB, Permission, RoleId } from "./types";
 
 /** DEMO ONLY: the role switcher is not authentication. In production, enforce these server-side (Postgres RLS + API guards). */
 export const ROLES: { id: RoleId; label: string; short: string; user: string; home: string; blurb: string }[] = [
-  { id: "system_admin", label: "System Administrator", short: "Sys Admin", user: "Ramon Dela Cruz", home: "/", blurb: "Full access, configuration, roles, audit." },
+  { id: "system_admin", label: "System Administrator", short: "Sys Admin", user: "Jig Narciso", home: "/", blurb: "Full access, configuration, roles, audit." },
   { id: "owner", label: "Club Owner / Board", short: "Owner / Board", user: "Atty. Lourdes Villanueva", home: "/", blurb: "Executive view, approvals, financial oversight." },
   { id: "gm", label: "General Manager", short: "GM", user: "Eduardo Santiago", home: "/", blurb: "All operations, approvals, write-offs, closures." },
   { id: "golf_ops", label: "Golf Operations Manager", short: "Golf Ops Mgr", user: "Marco Reyes", home: "/golf-operations", blurb: "Tee sheet, flights, caddies, carts, starter." },
