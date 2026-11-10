@@ -51,3 +51,8 @@ or push this folder to its own GitHub repo and import it in Vercel (framework: N
 
 ## Structure
 `app/(staff)/*` module pages · `app/portal` golfer portal · `components/` UI kit, shell, dialogs · `lib/services/*` business rules · `lib/seed.ts` deterministic seed (drives the real services) · `lib/store.tsx` shared state/persistence · `tests/` · `docs/`.
+
+
+## Static hosting (no server)
+
+`npm run build:static` writes plain HTML to `./out`. Drag that folder (or the zip) onto https://app.netlify.com/drop or any static host. Data stays in each viewer's browser.

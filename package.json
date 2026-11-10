@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:static": "STATIC_EXPORT=1 next build"
   },
   "dependencies": {
     "clsx": "^2.1.1",
